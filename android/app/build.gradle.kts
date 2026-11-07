@@ -55,9 +55,9 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
-            // Lightweight rules: R8 minify + resource shrinking
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Lightweight rules: R8 minify + resource shrinking disabled for rc1 (untested on physical device)
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

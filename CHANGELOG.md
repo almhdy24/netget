@@ -27,6 +27,7 @@ All notable changes to the NetGet project are documented in this file.
 - Configured default connection count to `1` (stable single-stream path preserved; multi-connection is currently beta).
 - Replaced per-tick repository disk saves with throttled saves (maximum 1/s per task, plus immediate saves on pause, cancel, and completion).
 - Enforced strict release signing in `android/app/build.gradle.kts` (no silent fallback to debug keystore).
+- Disabled R8 minify and resource shrinking (`isMinifyEnabled = false`, `isShrinkResources = false`) for rc1 (R8 off in rc1, untested on device).
 
 ### Known Limitations
 - **Android 15 Foreground Service dataSync Limit**: Android 15 (API 35+) enforces a 6-hour cumulative dataSync runtime budget per 24 hours. NetGet implements `onTimeout` to safely pause tasks and post a resumable notification when the budget expires.

@@ -81,3 +81,18 @@ Revision = pubspec.yaml BUILD_NUMBER
 2. Run `dart analyze lib/ test/` and `flutter test`.
 3. Commit with message: `chore(release): bump version to <version-name>+<build-number>`.
 4. Tag commit with `v<version-name>`.
+
+---
+
+## 5. R8 Minification and ProGuard Rule Policy
+
+R8 code shrinking and resource shrinking are disabled in `1.0.0-rc1` (`isMinifyEnabled = false`, `isShrinkResources = false`) because it has not yet been validated on a physical device across all architectures.
+
+### Rule for Enabling R8 in Future Releases:
+R8 may be enabled (`isMinifyEnabled = true`, `isShrinkResources = true`) only after:
+1. A release-signed APK built with R8 enabled successfully passes all manual test scenarios in `docs/device_test_checklist.md` on a physical Android device.
+2. ProGuard keep rules (`android/app/proguard-rules.pro`) are verified to protect:
+   - Kotlin/Dart MethodChannel and EventChannel communication interfaces (`com.elmahdi.netget.*`).
+   - Foreground service components (`DownloadService`, `NotificationHelper`).
+   - JSON data model structures and serialization fields.
+3. Verification confirms that stack traces in release mode can be de-obfuscated with `mapping.txt` and that no `ClassNotFoundException` or reflection errors occur at runtime.
