@@ -84,8 +84,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify title and subtitle
-    expect(find.text('NetGet'), findsOneWidget);
-    expect(find.text('Download Manager'), findsOneWidget);
+    expect(find.text('NDM'), findsOneWidget);
+    expect(find.text('NetGet Download Manager'), findsOneWidget);
 
     // Verify Transfer Monitor summary card
     expect(find.text('Transfer Monitor'), findsOneWidget);

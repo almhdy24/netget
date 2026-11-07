@@ -1,7 +1,8 @@
 {
   "@@locale": "en",
-  "appName": "NetGet",
-  "appSubtitle": "Download Manager",
+  "appName": "NDM",
+  "appFullName": "NetGet Download Manager",
+  "appSubtitle": "NetGet Download Manager",
   "addLink": "Add Link",
   "startNow": "Start now",
   "downloadLater": "Download later",

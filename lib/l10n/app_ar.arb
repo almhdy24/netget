@@ -1,7 +1,8 @@
 {
   "@@locale": "ar",
-  "appName": "نت جت",
-  "appSubtitle": "مدير التنزيلات",
+  "appName": "NDM",
+  "appFullName": "نت جت مدير التنزيلات",
+  "appSubtitle": "نت جت مدير التنزيلات",
   "addLink": "إضافة رابط",
   "startNow": "ابدأ الآن",
   "downloadLater": "تنزيل لاحقاً",

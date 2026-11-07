@@ -65,8 +65,9 @@ enum SpeedMode {
 }
 
 class NetGetConstants {
-  static const String appName = 'NetGet';
-  static const String appSubtitle = 'Download Manager';
+  static const String appName = 'NDM';
+  static const String appFullName = 'NetGet Download Manager';
+  static const String appSubtitle = 'NetGet Download Manager';
   static const String userAgent = 'NetGet/1.0 (Android; en-US)';
 
   /// Default connections per download

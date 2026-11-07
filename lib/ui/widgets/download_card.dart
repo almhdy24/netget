@@ -953,7 +953,7 @@ class DownloadCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Remove "${task.fileName}" from NetGet?',
+                    'Remove "${task.fileName}" from NDM?',
                     style: const TextStyle(fontSize: 14),
                   ),
                   if (fileExists) ...[

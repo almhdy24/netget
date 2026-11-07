@@ -679,7 +679,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Icon(Icons.info_outline_rounded, size: 18),
                   SizedBox(width: 8),
-                  Text('About NetGet'),
+                  Text('About NDM'),
                 ],
               ),
             ),
@@ -1230,7 +1230,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showAboutDialog(BuildContext context) {
     showAboutDialog(
       context: context,
-      applicationName: NetGetConstants.appName,
+      applicationName: '${NetGetConstants.appName} (${NetGetConstants.appFullName})',
       applicationVersion: '2.0.0',
       applicationIcon: ClipRRect(
         borderRadius: BorderRadius.circular(10),
@@ -1254,7 +1254,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       children: const [
         Text(
-          'NetGet is a lightweight, fast, and dense Android download manager '
+          'NDM (NetGet Download Manager) is a lightweight, fast, and dense Android download manager '
           'inspired by classic desktop tools (IDM & FDM). Features live 60s speed graph, '
           'segmented connection map, dynamic re-splitting, desktop shortcuts, '
           'and clean Material 3 design.',

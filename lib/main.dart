@@ -74,7 +74,7 @@ class _NetGetAppState extends State<NetGetApp> {
         );
 
         return MaterialApp(
-          title: '${NetGetConstants.appName} – ${NetGetConstants.appSubtitle}',
+          title: '${NetGetConstants.appName} – ${NetGetConstants.appFullName}',
           debugShowCheckedModeBanner: false,
           themeMode: themeMode,
           theme: NetGetTheme.lightTheme(),
