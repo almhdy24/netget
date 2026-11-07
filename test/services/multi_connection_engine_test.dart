@@ -212,4 +212,41 @@ void main() {
 
     expect(downloader.isCancelled, isTrue);
   });
+
+  test('Scenario 11: Segment checkpoint is strictly preceded by RAF flush', () async {
+    final saveFile = File('${tempDir.path}/test_checkpoint_flush.bin');
+    final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
+
+    int checkpointCalledCount = 0;
+    int writerFlushCountAtCheckpoint = 0;
+
+    late MultiConnectionDownloader downloader;
+    downloader = MultiConnectionDownloader(
+      id: 'test_11',
+      uri: uri,
+      savePath: saveFile.path,
+      connectionCount: 2,
+      clientFactory: () => HttpClient(),
+      onCheckpoint: (snapshot) async {
+        checkpointCalledCount++;
+        writerFlushCountAtCheckpoint = downloader.writer?.flushCount ?? 0;
+      },
+    );
+
+    final startFuture = downloader.start();
+    await Future.delayed(const Duration(milliseconds: 30));
+
+    // Manually trigger checkpoint
+    final snapshot = await downloader.checkpoint();
+    expect(snapshot.isNotEmpty, isTrue);
+    expect(checkpointCalledCount, equals(1));
+    expect(writerFlushCountAtCheckpoint, greaterThanOrEqualTo(1),
+        reason: 'RAF flush must be completed before checkpoint callback is invoked');
+
+    await downloader.pause();
+    await startFuture;
+
+    expect(checkpointCalledCount, equals(2), reason: 'Pause must also trigger checkpoint');
+    expect(downloader.writer?.flushCount, greaterThanOrEqualTo(2));
+  });
 }

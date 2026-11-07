@@ -11,10 +11,12 @@ class ConcurrentFileWriter {
   final RandomAccessFile _raf;
   Future<void> _writeQueue = Future.value();
   bool _isClosed = false;
+  int flushCount = 0;
+  int writeCount = 0;
 
   ConcurrentFileWriter(this._raf);
 
-  /// Pre-allocates file size to minimize disk fragmentation and prepare for random writes.
+  /// Extends file size to [totalBytes] (sparse file on POSIX) to prepare for random-access writes.
   Future<void> preallocate(int totalBytes) async {
     if (totalBytes > 0) {
       try {
@@ -35,6 +37,7 @@ class ConcurrentFileWriter {
       try {
         await _raf.setPosition(offset);
         await _raf.writeFrom(bytes);
+        writeCount++;
         completer.complete();
       } catch (e, st) {
         completer.completeError(e, st);
@@ -43,21 +46,36 @@ class ConcurrentFileWriter {
     return completer.future;
   }
 
-  Future<void> flush() async {
-    if (_isClosed) return;
-    await _writeQueue;
-    try {
-      await _raf.flush();
-    } catch (_) {}
+  Future<void> flush() {
+    if (_isClosed) return Future.value();
+    final completer = Completer<void>();
+    _writeQueue = _writeQueue.then((_) async {
+      if (_isClosed) {
+        completer.complete();
+        return;
+      }
+      try {
+        await _raf.flush();
+        flushCount++;
+        completer.complete();
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
   }
 
-  Future<void> close() async {
-    if (_isClosed) return;
+  Future<void> close() {
+    if (_isClosed) return Future.value();
     _isClosed = true;
-    await _writeQueue;
-    try {
-      await _raf.close();
-    } catch (_) {}
+    final completer = Completer<void>();
+    _writeQueue = _writeQueue.then((_) async {
+      try {
+        await _raf.close();
+      } catch (_) {}
+      completer.complete();
+    });
+    return completer.future;
   }
 }
 
@@ -86,6 +104,7 @@ class MultiConnectionDownloader {
   final int connectionCount;
   final HttpClient Function() clientFactory;
   final void Function(int downloadedBytes, int totalBytes, double speedBytesPerSec, List<DownloadSegment> segments)? onProgress;
+  final Future<void> Function(List<DownloadSegment> segments)? onCheckpoint;
   final void Function(String level, String message)? onLog;
 
   bool _isPaused = false;
@@ -107,6 +126,7 @@ class MultiConnectionDownloader {
     this.connectionCount = 4,
     required this.clientFactory,
     this.onProgress,
+    this.onCheckpoint,
     this.onLog,
     this.etag,
     this.lastModified,
@@ -119,6 +139,17 @@ class MultiConnectionDownloader {
 
   bool get isPaused => _isPaused;
   bool get isCancelled => _isCancelled;
+  ConcurrentFileWriter? get writer => _writer;
+
+  /// Flushes in-flight bytes to disk and triggers an immutable checkpoint.
+  Future<List<DownloadSegment>> checkpoint() async {
+    await _writer?.flush();
+    final snapshot = segments.map((s) => s.copyWith()).toList();
+    if (onCheckpoint != null) {
+      await onCheckpoint!(snapshot);
+    }
+    return snapshot;
+  }
 
   void _log(String level, String msg) {
     onLog?.call(level, msg);
@@ -384,7 +415,12 @@ class MultiConnectionDownloader {
         client.close(force: true);
       } catch (_) {}
     }
+    // Guarantee file flush before any checkpointing or closing
     await _writer?.flush();
+    if (onCheckpoint != null) {
+      final snapshot = segments.map((s) => s.copyWith()).toList();
+      await onCheckpoint!(snapshot);
+    }
     await _writer?.close();
     _log('INFO', 'Download paused');
   }
