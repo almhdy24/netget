@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import '../core/constants.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
@@ -1516,7 +1517,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<String> _resolveUniqueFilePath(String dirPath, String fileName) async {
-    var candidate = '$dirPath/$fileName';
+    var candidate = p.join(dirPath, fileName);
     if (!await File(candidate).exists()) {
       return candidate;
     }
@@ -1526,9 +1527,9 @@ class DownloadManager extends ChangeNotifier {
     final ext = dotIndex > 0 ? fileName.substring(dotIndex) : '';
 
     var counter = 1;
-    while (await File('$dirPath/$base($counter)$ext').exists()) {
+    while (await File(p.join(dirPath, '$base($counter)$ext')).exists()) {
       counter++;
     }
-    return '$dirPath/$base($counter)$ext';
+    return p.join(dirPath, '$base($counter)$ext');
   }
 }

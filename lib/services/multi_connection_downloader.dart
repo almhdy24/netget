@@ -200,6 +200,10 @@ class LinkProbeResult {
 typedef DiskSpaceChecker = Future<int?> Function(String directoryPath);
 
 Future<int?> defaultDiskSpaceChecker(String directoryPath) async {
+  // On Windows, the Unix `df` binary does not exist. Return null (unknown) to proceed safely.
+  if (Platform.isWindows) {
+    return null;
+  }
   try {
     final result = await Process.run('df', ['-Pk', directoryPath]);
     if (result.exitCode == 0) {

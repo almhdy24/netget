@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import '../core/utils.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
 
@@ -23,7 +25,7 @@ class JsonDownloadRepository implements DownloadRepository {
     if (_resolvedFile != null) return _resolvedFile!;
 
     final docsDir = await getApplicationDocumentsDirectory();
-    final file = File('${docsDir.path}/netget_tasks.json');
+    final file = File(p.join(docsDir.path, 'netget_tasks.json'));
     _resolvedFile = file;
     return file;
   }
@@ -78,10 +80,7 @@ class JsonDownloadRepository implements DownloadRepository {
 
       await tempFile.writeAsString(raw, flush: true);
       if (await tempFile.exists()) {
-        if (await file.exists()) {
-          await file.delete();
-        }
-        await tempFile.rename(file.path);
+        await NetGetUtils.safeRenameFile(tempFile, file);
       }
     } catch (e) {
       debugPrint('Failed to save download tasks: $e');
