@@ -1094,6 +1094,27 @@ class DownloadManager extends ChangeNotifier {
               client.close(force: true);
               return;
             }
+            if (e is DiskSpaceException ||
+                (e is FileSystemException &&
+                    (e.message.contains('Insufficient disk space') ||
+                        e.osError?.errorCode == 28 ||
+                        e.message.toLowerCase().contains('no space')))) {
+              final idx = _tasks.indexWhere((t) => t.id == taskId);
+              if (idx >= 0) {
+                _tasks[idx] = _tasks[idx].copyWith(
+                  status: DownloadStatus.failed,
+                  errorMessage: 'Disk is full. Please free up storage space to resume download.',
+                  speedBytesPerSec: 0.0,
+                );
+                logEvent(taskId, 'ERROR', 'Disk full: $e');
+                await saveImmediate();
+                notifyListeners();
+              }
+              _activeContexts.remove(taskId);
+              client.close(force: true);
+              _processQueue();
+              return;
+            }
             if (e is HttpException && e.message.contains('Server file changed')) {
               logEvent(taskId, 'WARN', 'Server ETag changed mid-download: $e. Discarding partial file and restarting from 0.');
               try {
@@ -1400,7 +1421,20 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
+  String cleanErrorMessageForTesting(dynamic error) => _cleanErrorMessage(error);
+
   String _cleanErrorMessage(dynamic error) {
+    if (error is DiskSpaceException) {
+      return 'Disk is full. Please free up storage space to resume download.';
+    }
+    if (error is FileSystemException) {
+      if (error.osError?.errorCode == 28 ||
+          error.message.toLowerCase().contains('no space') ||
+          (error.osError?.message.toLowerCase().contains('no space') ?? false)) {
+        return 'Disk is full. Please free up storage space to resume download.';
+      }
+      return 'Disk I/O error: ${error.message}';
+    }
     if (error is SocketException) {
       return 'Network connection failed (${error.osError?.message ?? error.message})';
     }

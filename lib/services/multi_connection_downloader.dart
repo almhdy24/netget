@@ -56,6 +56,29 @@ class HostConnectionPool {
   }
 }
 
+/// Thrown when disk space is exhausted (ENOSPC errno 28 or out of storage).
+class DiskSpaceException implements Exception {
+  final String message;
+  final OSError? osError;
+
+  DiskSpaceException(this.message, {this.osError});
+
+  @override
+  String toString() => 'DiskSpaceException: $message';
+}
+
+bool _isEnospc(Object error) {
+  if (error is FileSystemException) {
+    if (error.osError?.errorCode == 28) return true;
+    final msg = '${error.message} ${error.osError?.message ?? ''}'.toLowerCase();
+    if (msg.contains('no space left') || msg.contains('enospc') || msg.contains('disk full')) {
+      return true;
+    }
+  }
+  if (error is OSError && error.errorCode == 28) return true;
+  return false;
+}
+
 /// Thread-safe concurrent file writer ensuring serialized, non-overlapping writes.
 class ConcurrentFileWriter {
   final RandomAccessFile _raf;
@@ -71,7 +94,15 @@ class ConcurrentFileWriter {
     if (totalBytes > 0) {
       try {
         await _raf.truncate(totalBytes);
-      } catch (_) {}
+      } catch (e) {
+        if (_isEnospc(e)) {
+          throw DiskSpaceException(
+            'No space left on device: unable to preallocate $totalBytes bytes',
+            osError: e is FileSystemException ? e.osError : null,
+          );
+        }
+        rethrow;
+      }
     }
   }
 
@@ -90,7 +121,17 @@ class ConcurrentFileWriter {
         writeCount++;
         completer.complete();
       } catch (e, st) {
-        completer.completeError(e, st);
+        if (_isEnospc(e)) {
+          completer.completeError(
+            DiskSpaceException(
+              'No space left on device: write failed at offset $offset',
+              osError: e is FileSystemException ? e.osError : null,
+            ),
+            st,
+          );
+        } else {
+          completer.completeError(e, st);
+        }
       }
     });
     return completer.future;
@@ -109,7 +150,17 @@ class ConcurrentFileWriter {
         flushCount++;
         completer.complete();
       } catch (e, st) {
-        completer.completeError(e, st);
+        if (_isEnospc(e)) {
+          completer.completeError(
+            DiskSpaceException(
+              'No space left on device during disk flush',
+              osError: e is FileSystemException ? e.osError : null,
+            ),
+            st,
+          );
+        } else {
+          completer.completeError(e, st);
+        }
       }
     });
     return completer.future;
@@ -146,9 +197,9 @@ class LinkProbeResult {
   });
 }
 
-typedef DiskSpaceChecker = Future<int> Function(String directoryPath);
+typedef DiskSpaceChecker = Future<int?> Function(String directoryPath);
 
-Future<int> defaultDiskSpaceChecker(String directoryPath) async {
+Future<int?> defaultDiskSpaceChecker(String directoryPath) async {
   try {
     final result = await Process.run('df', ['-Pk', directoryPath]);
     if (result.exitCode == 0) {
@@ -164,7 +215,8 @@ Future<int> defaultDiskSpaceChecker(String directoryPath) async {
       }
     }
   } catch (_) {}
-  return -1;
+  // df is unreliable on Android (different toolbox/toybox versions, SELinux): treat as unknown
+  return null;
 }
 
 /// Real Multi-Connection Parallel Range Download Engine.
@@ -381,7 +433,9 @@ class MultiConnectionDownloader {
       if (totalBytes > 0) {
         final checker = diskSpaceChecker ?? defaultDiskSpaceChecker;
         final freeBytes = await checker(file.parent.path);
-        if (freeBytes >= 0 && freeBytes < totalBytes) {
+        if (freeBytes == null) {
+          _log('WARN', 'Free disk space check returned unknown/null on Android; proceeding with download');
+        } else if (freeBytes < totalBytes) {
           throw FileSystemException(
             'Insufficient disk space: need $totalBytes bytes, but only $freeBytes bytes available',
             savePath,
