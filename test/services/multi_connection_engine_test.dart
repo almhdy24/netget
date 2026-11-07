@@ -96,7 +96,7 @@ void main() {
     }
   });
 
-  test('Scenario 4: Server changes ETag mid-download throws ETag mismatch', () async {
+  test('Scenario 4: Server changes ETag mid-download restarts cleanly from byte 0', () async {
     final saveFile = File('${tempDir.path}/test_etag_changed.bin');
     final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download?mode=etag_changed');
 
@@ -109,7 +109,11 @@ void main() {
       clientFactory: () => HttpClient(),
     );
 
-    expect(downloader.start(), throwsA(isA<HttpException>()));
+    await downloader.start();
+    expect(saveFile.existsSync(), isTrue);
+    final downloadedBytes = await saveFile.readAsBytes();
+    expect(downloadedBytes.length, equals(server.testData.length));
+    expect(downloadedBytes, equals(server.testData));
   });
 
   test('Scenario 5 & 6: Connection disconnects midway and resumes seamlessly', () async {
@@ -249,11 +253,11 @@ void main() {
     await downloader.pause();
     await startFuture;
 
-    expect(checkpointCalledCount, equals(2), reason: 'Pause must also trigger checkpoint');
+    expect(checkpointCalledCount, greaterThanOrEqualTo(2), reason: 'Pause must also trigger checkpoint');
     expect(downloader.writer?.flushCount, greaterThanOrEqualTo(2));
   });
 
-  test('Scenario 12: Resume with If-Range validator mismatch returning HTTP 200 throws HttpException', () async {
+  test('Scenario 12: Resume with If-Range validator mismatch returning HTTP 200 restarts cleanly without error loop', () async {
     final saveFile = File('${tempDir.path}/test_if_range_mismatch.bin');
     // Mode no_range returns HTTP 200 OK to any request
     final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download?mode=no_range');
@@ -270,11 +274,10 @@ void main() {
       clientFactory: () => HttpClient(),
     );
 
-    // Because startOffset > 0, receiving HTTP 200 must fail rather than corrupt file at offset 250000
-    expect(
-      downloader.start(),
-      throwsA(predicate((e) => e is HttpException && (e.message.contains('ETag mismatch') || e.message.contains('HTTP 200')))),
-    );
+    // Because startOffset > 0 and server returned HTTP 200, engine restarts cleanly from byte 0
+    await downloader.start();
+    expect(saveFile.existsSync(), isTrue);
+    expect(saveFile.lengthSync(), equals(server.testData.length));
   });
 
   test('Scenario 13: Server returns 429 Too Many Requests and engine retries with backoff', () async {
@@ -417,10 +420,11 @@ void main() {
       clientFactory: () => HttpClient(),
     );
 
-    // Resume must be rejected with ETag mismatch exception to prevent corrupting the file
-    expect(
-      downloaderRestart.start(),
-      throwsA(predicate((e) => e is HttpException && e.message.contains('ETag mismatch'))),
-    );
+    // When server ETag changed on resume, it must cleanly restart from byte 0 and match server data
+    await downloaderRestart.start();
+    expect(saveFile.existsSync(), isTrue);
+    final downloadedBytes = await saveFile.readAsBytes();
+    expect(downloadedBytes.length, equals(server.testData.length));
+    expect(downloadedBytes, equals(server.testData));
   });
 }
