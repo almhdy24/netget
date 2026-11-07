@@ -102,6 +102,7 @@ class MultiConnectionDownloader {
   final Uri uri;
   final String savePath;
   final int connectionCount;
+  final int maxConnectionsPerHost;
   final HttpClient Function() clientFactory;
   final void Function(int downloadedBytes, int totalBytes, double speedBytesPerSec, List<DownloadSegment> segments)? onProgress;
   final Future<void> Function(List<DownloadSegment> segments)? onCheckpoint;
@@ -124,6 +125,7 @@ class MultiConnectionDownloader {
     required this.uri,
     required this.savePath,
     this.connectionCount = 4,
+    this.maxConnectionsPerHost = 6,
     required this.clientFactory,
     this.onProgress,
     this.onCheckpoint,
@@ -155,67 +157,104 @@ class MultiConnectionDownloader {
     onLog?.call(level, msg);
   }
 
-  /// Probes server headers to determine range support, content length, and ETags.
-  Future<LinkProbeResult> probeServer() async {
-    final client = clientFactory();
-    _activeClients.add(client);
-    try {
-      final request = await client.openUrl('GET', uri);
-      _activeRequests.add(request);
-      request.headers.set(HttpHeaders.userAgentHeader, _defaultUserAgent);
-      request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
-      if (etag != null) {
-        request.headers.set(HttpHeaders.ifRangeHeader, etag!);
-      } else if (lastModified != null) {
-        request.headers.set(HttpHeaders.ifRangeHeader, lastModified!);
+  Duration _calculateRetryDelay(int statusCode, String? retryAfterHeader, int attempt) {
+    if (retryAfterHeader != null) {
+      final seconds = int.tryParse(retryAfterHeader);
+      if (seconds != null && seconds >= 0) {
+        return Duration(seconds: seconds.clamp(0, 60));
       }
-
-      final response = await request.close();
-      final statusCode = response.statusCode;
-
-      if (_isPaused || _isCancelled) {
-        return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
-      }
-
-      if (statusCode >= 400) {
-        throw HttpException('Server returned HTTP $statusCode', uri: uri);
-      }
-
-      final hasRange = (statusCode == HttpStatus.partialContent);
-      int length = -1;
-
-      if (hasRange) {
-        final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
-        if (contentRange != null && contentRange.contains('/')) {
-          final totalStr = contentRange.split('/').last.trim();
-          length = int.tryParse(totalStr) ?? -1;
+      try {
+        final date = HttpDate.parse(retryAfterHeader);
+        final diff = date.difference(DateTime.now());
+        if (!diff.isNegative) {
+          return diff > const Duration(seconds: 60) ? const Duration(seconds: 60) : diff;
         }
-      } else {
-        length = response.contentLength;
-      }
-
-      final serverEtag = response.headers.value(HttpHeaders.etagHeader);
-      final serverLastModified = response.headers.value(HttpHeaders.lastModifiedHeader);
-
-      // Drain probe response body
-      await response.drain<void>();
-
-      return LinkProbeResult(
-        isRangeSupported: hasRange,
-        totalBytes: length,
-        etag: serverEtag,
-        lastModified: serverLastModified,
-      );
-    } catch (e) {
-      if (_isPaused || _isCancelled) {
-        return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
-      }
-      rethrow;
-    } finally {
-      client.close(force: true);
-      _activeClients.remove(client);
+      } catch (_) {}
     }
+    // Exponential backoff: 300ms, 600ms, 1200ms...
+    final ms = (300 * pow(2, attempt)).toInt().clamp(100, 10000);
+    return Duration(milliseconds: ms);
+  }
+
+  /// Probes server headers to determine range support, content length, and ETags.
+  Future<LinkProbeResult> probeServer({int maxRetries = 3}) async {
+    int attempt = 0;
+    while (!_isPaused && !_isCancelled) {
+      final client = clientFactory();
+      _activeClients.add(client);
+      try {
+        final request = await client.openUrl('GET', uri);
+        _activeRequests.add(request);
+        request.headers.set(HttpHeaders.userAgentHeader, _defaultUserAgent);
+        request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+        if (etag != null) {
+          request.headers.set(HttpHeaders.ifRangeHeader, etag!);
+        } else if (lastModified != null) {
+          request.headers.set(HttpHeaders.ifRangeHeader, lastModified!);
+        }
+
+        final response = await request.close();
+        final statusCode = response.statusCode;
+
+        if (_isPaused || _isCancelled) {
+          await response.drain<void>();
+          return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
+        }
+
+        if (statusCode == HttpStatus.tooManyRequests || statusCode == HttpStatus.serviceUnavailable) {
+          if (attempt >= maxRetries) {
+            throw HttpException('Server returned HTTP $statusCode after $maxRetries retries', uri: uri);
+          }
+          final retryAfter = response.headers.value(HttpHeaders.retryAfterHeader);
+          final delay = _calculateRetryDelay(statusCode, retryAfter, attempt);
+          _log('WARN', 'Probe returned HTTP $statusCode. Retrying in ${delay.inMilliseconds}ms (attempt ${attempt + 1}/$maxRetries)...');
+          await response.drain<void>();
+          attempt++;
+          await Future.delayed(delay);
+          continue;
+        }
+
+        if (statusCode >= 400) {
+          throw HttpException('Server returned HTTP $statusCode', uri: uri);
+        }
+
+        final hasRange = (statusCode == HttpStatus.partialContent);
+        int length = -1;
+
+        if (hasRange) {
+          final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+          if (contentRange != null && contentRange.contains('/')) {
+            final totalStr = contentRange.split('/').last.trim();
+            length = int.tryParse(totalStr) ?? -1;
+          }
+        } else {
+          length = response.contentLength;
+        }
+
+        final serverEtag = response.headers.value(HttpHeaders.etagHeader);
+        final serverLastModified = response.headers.value(HttpHeaders.lastModifiedHeader);
+
+        // Drain probe response body
+        await response.drain<void>();
+
+        return LinkProbeResult(
+          isRangeSupported: hasRange,
+          totalBytes: length,
+          etag: serverEtag,
+          lastModified: serverLastModified,
+        );
+      } catch (e) {
+        if (_isPaused || _isCancelled) {
+          return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
+        }
+        rethrow;
+      } finally {
+        client.close(force: true);
+        _activeClients.remove(client);
+      }
+    }
+    return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
   }
 
   /// Starts or resumes multi-connection downloading.
@@ -260,7 +299,7 @@ class MultiConnectionDownloader {
 
     // Step 3: Segment Planning
     final effectiveConnections = (isRangeSupported && totalBytes > 256 * 1024)
-        ? connectionCount.clamp(1, 16)
+        ? connectionCount.clamp(1, maxConnectionsPerHost)
         : 1;
 
     if (segments.isEmpty) {
@@ -321,6 +360,9 @@ class MultiConnectionDownloader {
     DownloadSegment segment,
     void Function(int chunkLength) onChunk,
   ) async {
+    int retryCount = 0;
+    const int maxRetries = 3;
+
     while (!segment.isFinished && !_isPaused && !_isCancelled) {
       final client = clientFactory();
       _activeClients.add(client);
@@ -345,6 +387,22 @@ class MultiConnectionDownloader {
 
         final response = await request.close();
         final statusCode = response.statusCode;
+
+        if (statusCode == HttpStatus.tooManyRequests || statusCode == HttpStatus.serviceUnavailable) {
+          if (retryCount >= maxRetries) {
+            throw HttpException('HTTP $statusCode after $maxRetries retries', uri: uri);
+          }
+          final retryAfter = response.headers.value(HttpHeaders.retryAfterHeader);
+          final delay = _calculateRetryDelay(statusCode, retryAfter, retryCount);
+          _log('WARN', 'Worker received HTTP $statusCode. Retrying in ${delay.inMilliseconds}ms (attempt ${retryCount + 1}/$maxRetries)...');
+          retryCount++;
+          await response.drain<void>();
+          await Future.delayed(delay);
+          continue;
+        }
+
+        // Reset retry count on valid response
+        retryCount = 0;
 
         // Check for ETag validation across connections
         final respEtag = response.headers.value(HttpHeaders.etagHeader);

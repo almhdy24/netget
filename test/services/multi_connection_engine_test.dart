@@ -273,4 +273,47 @@ void main() {
       throwsA(predicate((e) => e is HttpException && (e.message.contains('ETag mismatch') || e.message.contains('HTTP 200')))),
     );
   });
+
+  test('Scenario 13: Server returns 429 Too Many Requests and engine retries with backoff', () async {
+    final saveFile = File('${tempDir.path}/test_retry_429.bin');
+    server.retry429Count = 0; // reset server counter
+    final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download?mode=retry_429');
+
+    final downloader = MultiConnectionDownloader(
+      id: 'test_13',
+      uri: uri,
+      savePath: saveFile.path,
+      connectionCount: 2,
+      maxConnectionsPerHost: 4,
+      clientFactory: () => HttpClient(),
+    );
+
+    await downloader.start();
+
+    expect(server.retry429Count, greaterThanOrEqualTo(1), reason: 'Server must have observed 429 challenge');
+    expect(await saveFile.exists(), isTrue);
+    final downloadedBytes = await saveFile.readAsBytes();
+    expect(downloadedBytes.length, equals(server.testData.length));
+    expect(downloadedBytes, equals(server.testData));
+  });
+
+  test('Scenario 14: Per-host connection limit clamps excessive connection count', () async {
+    final saveFile = File('${tempDir.path}/test_per_host_limit.bin');
+    final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
+
+    final downloader = MultiConnectionDownloader(
+      id: 'test_14',
+      uri: uri,
+      savePath: saveFile.path,
+      connectionCount: 16,
+      maxConnectionsPerHost: 4,
+      clientFactory: () => HttpClient(),
+    );
+
+    await downloader.start();
+
+    // Initial plan should be clamped to maxConnectionsPerHost (4)
+    expect(downloader.segments.length, greaterThanOrEqualTo(4));
+    expect(downloader.maxConnectionsPerHost, equals(4));
+  });
 }

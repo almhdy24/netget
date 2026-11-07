@@ -12,6 +12,7 @@ class TestHttpServer {
   late final String _testDataSha256;
   final String etag = '"netget-test-etag-v1"';
   final String changedEtag = '"netget-test-etag-v2"';
+  int retry429Count = 0;
   final DateTime lastModified = DateTime.utc(2026, 1, 1, 12, 0, 0);
 
   TestHttpServer({this.port = 0, int dataSize = 10 * 1024 * 1024}) {
@@ -64,6 +65,17 @@ class TestHttpServer {
       request.response.statusCode = HttpStatus.notFound;
       await request.response.close();
       return;
+    }
+
+    // SCENARIO: Server returns 429 Too Many Requests once then succeeds
+    if (mode == 'retry_429') {
+      retry429Count++;
+      if (retry429Count == 1) {
+        request.response.statusCode = HttpStatus.tooManyRequests;
+        request.response.headers.set(HttpHeaders.retryAfterHeader, '0');
+        await request.response.close();
+        return;
+      }
     }
 
     // SCENARIO 4: Server changes ETag
