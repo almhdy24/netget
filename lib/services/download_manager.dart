@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../core/constants.dart';
+import '../core/download_failure.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
 import '../data/download_repository.dart';
@@ -110,6 +111,7 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, bool> _activeQueues = {
     NetGetConstants.defaultQueueName: true,
   };
+  final Map<String, Timer> _networkRetryTimers = {};
 
   /// Default connections setting (default 1 preserves legacy single-stream behavior;
   /// multi-connection engine is activated when connections > 1 and server supports ranges).
@@ -561,6 +563,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Restarts download from scratch (deletes partial file).
   Future<void> reDownload(String taskId) async {
+    _networkRetryTimers.remove(taskId)?.cancel();
     final idx = _tasks.indexWhere((t) => t.id == taskId);
     if (idx < 0) return;
 
@@ -629,6 +632,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Pauses an active downloading task.
   Future<void> pauseDownload(String id) async {
+    _networkRetryTimers.remove(id)?.cancel();
     final index = _tasks.indexWhere((t) => t.id == id);
     if (index < 0) return;
 
@@ -667,6 +671,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Resumes a paused or failed task.
   Future<void> resumeDownload(String id) async {
+    _networkRetryTimers.remove(id)?.cancel();
     final index = _tasks.indexWhere((t) => t.id == id);
     if (index < 0) return;
 
@@ -697,6 +702,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Cancels an active or queued download.
   Future<void> cancelDownload(String id, {bool deleteFile = false}) async {
+    _networkRetryTimers.remove(id)?.cancel();
     final index = _tasks.indexWhere((t) => t.id == id);
     if (index < 0) return;
 
@@ -740,6 +746,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Deletes a task from history, optionally deleting the file from storage.
   Future<void> deleteTask(String id, {bool deleteFile = false}) async {
+    _networkRetryTimers.remove(id)?.cancel();
     final index = _tasks.indexWhere((t) => t.id == id);
     if (index < 0) return;
 
@@ -919,6 +926,10 @@ class DownloadManager extends ChangeNotifier {
   void dispose() {
     _schedulerTimer?.cancel();
     _saveThrottleTimer?.cancel();
+    for (final t in _networkRetryTimers.values) {
+      t.cancel();
+    }
+    _networkRetryTimers.clear();
     _nativeEventSubscription?.cancel();
     _nativeEventSubscription = null;
     if (_reportedActiveCount > 0) {
@@ -1425,16 +1436,20 @@ class DownloadManager extends ChangeNotifier {
           if (idx >= 0) {
             final t = _tasks[idx];
             if (!t.status.isPaused && !t.status.isCancelled) {
-              final cleanMsg = _cleanErrorMessage(error);
+              final failureCode = DownloadFailureMapper.mapException(error);
+              final cleanMsg = failureCode.localizedMessage();
               _tasks[idx] = t.copyWith(
                 status: DownloadStatus.failed,
                 errorMessage: cleanMsg,
                 speedBytesPerSec: 0.0,
                 downloadedBytes: downloadedBytes,
               );
-              logEvent(taskId, 'ERROR', 'Error: $cleanMsg');
+              logEvent(taskId, 'ERROR', 'Error ($failureCode): $error');
               await saveImmediate();
               notifyListeners();
+              if (failureCode == DownloadFailureCode.noConnection) {
+                _scheduleNetworkRetry(taskId);
+              }
             }
           }
           _processQueue();
@@ -1479,19 +1494,35 @@ class DownloadManager extends ChangeNotifier {
       if (idx >= 0) {
         final t = _tasks[idx];
         if (!t.status.isPaused && !t.status.isCancelled) {
-          final cleanMsg = _cleanErrorMessage(e);
+          final failureCode = DownloadFailureMapper.mapException(e);
+          final cleanMsg = failureCode.localizedMessage();
           _tasks[idx] = t.copyWith(
             status: DownloadStatus.failed,
             errorMessage: cleanMsg,
             speedBytesPerSec: 0.0,
           );
-          logEvent(taskId, 'ERROR', 'Failure: $cleanMsg');
+          logEvent(taskId, 'ERROR', 'Failure ($failureCode): $e');
           await saveImmediate();
           notifyListeners();
+          if (failureCode == DownloadFailureCode.noConnection) {
+            _scheduleNetworkRetry(taskId);
+          }
         }
       }
       _processQueue();
     }
+  }
+
+  void _scheduleNetworkRetry(String taskId) {
+    _networkRetryTimers[taskId]?.cancel();
+    _networkRetryTimers[taskId] = Timer(const Duration(seconds: 5), () {
+      _networkRetryTimers.remove(taskId);
+      final idx = _tasks.indexWhere((t) => t.id == taskId);
+      if (idx >= 0 && _tasks[idx].status == DownloadStatus.failed) {
+        logEvent(taskId, 'INFO', 'Automatic network retry triggered');
+        retryDownload(taskId);
+      }
+    });
   }
 
   String cleanErrorMessageForTesting(dynamic error) => _cleanErrorMessage(error);
@@ -1510,33 +1541,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   String _cleanErrorMessage(dynamic error) {
-    if (error is DiskSpaceException) {
-      return 'Disk is full. Please free up storage space to resume download.';
-    }
-    if (error is FileSystemException) {
-      if (error.osError?.errorCode == 28 ||
-          error.message.toLowerCase().contains('no space') ||
-          (error.osError?.message.toLowerCase().contains('no space') ?? false)) {
-        return 'Disk is full. Please free up storage space to resume download.';
-      }
-      return 'Disk I/O error: ${error.message}';
-    }
-    if (error is SocketException) {
-      return 'Network connection failed (${error.osError?.message ?? error.message})';
-    }
-    if (error is HttpException) {
-      return error.message;
-    }
-    if (error is HandshakeException) {
-      return 'SSL/TLS handshake error';
-    }
-    if (error is TimeoutException) {
-      return 'Connection timed out';
-    }
-    return error.toString().replaceFirst(
-      RegExp(r'^[A-Za-z0-9_]+Exception:\s*'),
-      '',
-    );
+    return DownloadFailureMapper.cleanErrorMessage(error);
   }
 
   Future<String> _resolveUniqueFilePath(String dirPath, String fileName) async {

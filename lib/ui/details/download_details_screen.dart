@@ -141,7 +141,11 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
                               Row(
                                 children: [
                                   _buildBadge(
-                                    task.status.label,
+                                    (task.status.isFailed &&
+                                            (task.errorMessage?.contains('waiting for network') == true ||
+                                                task.errorMessage?.contains('في انتظار الشبكة') == true))
+                                        ? 'Waiting for network'
+                                        : task.status.label,
                                     statusColor,
                                     isDark,
                                   ),
@@ -215,6 +219,58 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
                         ],
                       ],
                     ),
+                    if (task.status.isFailed &&
+                        task.errorMessage != null &&
+                        task.errorMessage!.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.error.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: theme.colorScheme.error.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.error_outline_rounded,
+                              color: theme.colorScheme.error,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                task.errorMessage!,
+                                style: TextStyle(
+                                  color: theme.colorScheme.error,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton.tonalIcon(
+                              onPressed: () =>
+                                  widget.manager.retryDownload(task.id),
+                              icon: const Icon(Icons.refresh_rounded, size: 14),
+                              label: const Text('Retry'),
+                              style: FilledButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 0,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

@@ -623,6 +623,12 @@ class DownloadCard extends StatelessWidget {
   }
 
   Widget _buildStatusBadge(DownloadStatus status, Color color, bool isDark) {
+    String label = status.label;
+    if (task.status.isFailed &&
+        (task.errorMessage?.contains('waiting for network') == true ||
+            task.errorMessage?.contains('في انتظار الشبكة') == true)) {
+      label = 'Waiting for network';
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -631,7 +637,7 @@ class DownloadCard extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.3), width: 0.8),
       ),
       child: Text(
-        status.label,
+        label,
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w600,
@@ -810,12 +816,16 @@ class DownloadCard extends StatelessWidget {
             onPressed: () => _confirmDelete(context),
           ),
         ] else if (task.status.isFailed || task.status.isCancelled) ...[
-          _buildIconButton(
-            icon: Icons.refresh_rounded,
-            tooltip: 'Retry',
-            color: Theme.of(context).colorScheme.primary,
+          FilledButton.tonalIcon(
             onPressed: () => manager.retryDownload(task.id),
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Retry'),
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+            ),
           ),
+          const SizedBox(width: 8),
           _buildIconButton(
             icon: Icons.delete_outline_rounded,
             tooltip: 'Delete',
