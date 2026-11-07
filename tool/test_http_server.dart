@@ -7,6 +7,7 @@ import 'dart:typed_data';
 /// Controlled HTTP Test Server for NetGet reliability tests and performance benchmarks.
 class TestHttpServer {
   final int port;
+  final int? throttleBytesPerSec;
   HttpServer? _server;
   late final Uint8List _testData;
   late final String _testDataSha256;
@@ -15,7 +16,11 @@ class TestHttpServer {
   int retry429Count = 0;
   final DateTime lastModified = DateTime.utc(2026, 1, 1, 12, 0, 0);
 
-  TestHttpServer({this.port = 0, int dataSize = 10 * 1024 * 1024}) {
+  TestHttpServer({
+    this.port = 0,
+    int dataSize = 10 * 1024 * 1024,
+    this.throttleBytesPerSec,
+  }) {
     // Generate deterministic reproducible test payload (pseudo-random pattern)
     _testData = Uint8List(dataSize);
     final random = Random(42);
@@ -148,6 +153,13 @@ class TestHttpServer {
       while (offset <= clampedEnd) {
         final toSend = min(chunkSize, clampedEnd - offset + 1);
         request.response.add(_testData.sublist(offset, offset + toSend));
+        if (throttleBytesPerSec != null && throttleBytesPerSec! > 0) {
+          final delayMs = ((toSend / throttleBytesPerSec!) * 1000).round();
+          if (delayMs > 0) {
+            await request.response.flush();
+            await Future.delayed(Duration(milliseconds: delayMs));
+          }
+        }
         offset += toSend;
       }
       await request.response.close();
@@ -180,6 +192,13 @@ class TestHttpServer {
     while (offset < _testData.length) {
       final toSend = min(chunkSize, _testData.length - offset);
       request.response.add(_testData.sublist(offset, offset + toSend));
+      if (throttleBytesPerSec != null && throttleBytesPerSec! > 0) {
+        final delayMs = ((toSend / throttleBytesPerSec!) * 1000).round();
+        if (delayMs > 0) {
+          await request.response.flush();
+          await Future.delayed(Duration(milliseconds: delayMs));
+        }
+      }
       offset += toSend;
     }
     await request.response.close();
