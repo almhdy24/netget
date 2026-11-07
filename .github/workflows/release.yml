@@ -10,6 +10,11 @@ on:
         description: 'Release tag (e.g. v1.0.0-rc1)'
         required: false
         default: ''
+      dry_run:
+        description: 'Dry run: build and upload artifacts only, do not publish GitHub Release'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,7 +27,7 @@ jobs:
   build-and-release:
     name: Build & Publish Release
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
       - name: Checkout Source Code
@@ -80,12 +85,14 @@ jobs:
           EOF
           echo "Release keystore verified and key.properties created."
 
-      - name: Build Release APKs
+      - name: Build Release APKs & App Bundle
         run: |
           echo "Building split-per-abi release APKs..."
           flutter build apk --release --split-per-abi
           echo "Building universal release APK..."
           flutter build apk --release
+          echo "Building release Android App Bundle (AAB)..."
+          flutter build appbundle --release
 
       - name: Prepare Release Assets
         run: |
@@ -106,16 +113,30 @@ jobs:
           if [ -f build/app/outputs/flutter-apk/app-x86_64-release.apk ]; then
             cp build/app/outputs/flutter-apk/app-x86_64-release.apk "dist/NetGet-${TAG}-x86_64.apk"
           fi
+          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
+            cp build/app/outputs/bundle/release/app-release.aab "dist/NetGet-${TAG}.aab"
+          fi
           if [ -f build/app/outputs/mapping/release/mapping.txt ]; then
             cp build/app/outputs/mapping/release/mapping.txt "dist/mapping-${TAG}.txt"
           fi
 
           cd dist
-          sha256sum NetGet-*.apk > SHA256SUMS.txt
+          sha256sum * > SHA256SUMS.txt
           cd ..
           ls -la dist/
 
+      - name: Verify 16 KB Page Alignment of Native Libraries
+        run: bash tool/check_16kb_page_alignment.sh
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: netget-release-${{ env.TAG }}
+          path: dist/*
+          retention-days: 14
+
       - name: Publish GitHub Release
+        if: ${{ inputs.dry_run != true }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

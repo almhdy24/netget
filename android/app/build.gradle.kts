@@ -50,7 +50,11 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             // Lightweight rules: R8 minify + resource shrinking
             isMinifyEnabled = true
             isShrinkResources = true
