@@ -6,6 +6,56 @@ import '../core/utils.dart';
 
 const String _defaultUserAgent = 'NetGet/1.0 (Android; en-US)';
 
+/// Global pool that restricts concurrent HTTP connections per host across all active downloads.
+/// The default limit of 6 connections per host follows the standard modern browser convention
+/// (RFC 2616 § 8.1.4 historically recommended 2 connections per host).
+class HostConnectionPool {
+  static final HostConnectionPool defaultPool = HostConnectionPool();
+
+  final int maxConnectionsPerHost;
+  final Map<String, int> _activePerHost = {};
+
+  HostConnectionPool({this.maxConnectionsPerHost = 6});
+
+  /// Active connections currently open to [host].
+  int activeCount(String host) => _activePerHost[host] ?? 0;
+
+  /// Returns remaining available connection slots for [host].
+  int availableSlots(String host) {
+    final active = activeCount(host);
+    final remaining = maxConnectionsPerHost - active;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  /// Acquires a connection slot for [host].
+  /// Returns a release callback to be invoked when the connection closes.
+  void Function() acquire(String host) {
+    _activePerHost[host] = activeCount(host) + 1;
+    bool released = false;
+    return () {
+      if (!released) {
+        released = true;
+        final current = _activePerHost[host] ?? 1;
+        if (current <= 1) {
+          _activePerHost.remove(host);
+        } else {
+          _activePerHost[host] = current - 1;
+        }
+      }
+    };
+  }
+
+  /// Clamps requested connections to available slots for [host].
+  int clampConnections(String host, int requested) {
+    final available = availableSlots(host);
+    return requested.clamp(1, max(1, min(available, maxConnectionsPerHost)));
+  }
+
+  void reset() {
+    _activePerHost.clear();
+  }
+}
+
 /// Thread-safe concurrent file writer ensuring serialized, non-overlapping writes.
 class ConcurrentFileWriter {
   final RandomAccessFile _raf;
@@ -124,6 +174,7 @@ class MultiConnectionDownloader {
   final String savePath;
   final int connectionCount;
   final int maxConnectionsPerHost;
+  final HostConnectionPool hostPool;
   final HttpClient Function() clientFactory;
   final void Function(int downloadedBytes, int totalBytes, double speedBytesPerSec, List<DownloadSegment> segments)? onProgress;
   final Future<void> Function(List<DownloadSegment> segments)? onCheckpoint;
@@ -149,6 +200,7 @@ class MultiConnectionDownloader {
     required this.savePath,
     this.connectionCount = 4,
     this.maxConnectionsPerHost = 6,
+    HostConnectionPool? hostPool,
     required this.clientFactory,
     this.onProgress,
     this.onCheckpoint,
@@ -158,7 +210,7 @@ class MultiConnectionDownloader {
     this.diskSpaceChecker,
     this.writerFactory,
     List<DownloadSegment>? initialSegments,
-  }) {
+  }) : hostPool = hostPool ?? HostConnectionPool.defaultPool {
     if (initialSegments != null && initialSegments.isNotEmpty) {
       segments = List.from(initialSegments);
     }
@@ -182,10 +234,14 @@ class MultiConnectionDownloader {
     onLog?.call(level, msg);
   }
 
+  Duration calculateRetryDelayForTesting(int statusCode, String? retryAfterHeader, int attempt) {
+    return _calculateRetryDelay(statusCode, retryAfterHeader, attempt);
+  }
+
   Duration _calculateRetryDelay(int statusCode, String? retryAfterHeader, int attempt) {
     if (retryAfterHeader != null) {
       final seconds = int.tryParse(retryAfterHeader);
-      if (seconds != null && seconds >= 0) {
+      if (seconds != null) {
         return Duration(seconds: seconds.clamp(0, 60));
       }
       try {
@@ -196,7 +252,7 @@ class MultiConnectionDownloader {
         }
       } catch (_) {}
     }
-    // Exponential backoff: 300ms, 600ms, 1200ms...
+    // Exponential backoff: 300ms, 600ms, 1200ms... capped at 10s (strictly <= 60s)
     final ms = (300 * pow(2, attempt)).toInt().clamp(100, 10000);
     return Duration(milliseconds: ms);
   }
@@ -207,6 +263,7 @@ class MultiConnectionDownloader {
     while (!_isPaused && !_isCancelled) {
       final client = clientFactory();
       _activeClients.add(client);
+      final releaseHostSlot = hostPool.acquire(uri.host);
       try {
         final request = await client.openUrl('GET', uri);
         _activeRequests.add(request);
@@ -275,6 +332,7 @@ class MultiConnectionDownloader {
         }
         rethrow;
       } finally {
+        releaseHostSlot();
         client.close(force: true);
         _activeClients.remove(client);
       }
@@ -342,9 +400,11 @@ class MultiConnectionDownloader {
         await _writer!.preallocate(totalBytes);
       }
 
-      // Step 3: Segment Planning
+      // Step 3: Segment Planning with global per-host connection limiter
+      final availableSlots = hostPool.availableSlots(uri.host);
+      final hostCap = min(maxConnectionsPerHost, hostPool.maxConnectionsPerHost);
       final effectiveConnections = (isRangeSupported && totalBytes > 256 * 1024)
-          ? connectionCount.clamp(1, maxConnectionsPerHost)
+          ? connectionCount.clamp(1, max(1, min(availableSlots, hostCap))).toInt()
           : 1;
 
       if (segments.isEmpty) {
@@ -448,6 +508,7 @@ class MultiConnectionDownloader {
     while (!segment.isFinished && !_isPaused && !_isCancelled) {
       final client = clientFactory();
       _activeClients.add(client);
+      final releaseHostSlot = hostPool.acquire(uri.host);
 
       try {
         final request = await client.openUrl('GET', uri);
@@ -586,6 +647,7 @@ class MultiConnectionDownloader {
         if (_isPaused || _isCancelled) return;
         rethrow;
       } finally {
+        releaseHostSlot();
         client.close(force: true);
         _activeClients.remove(client);
       }
