@@ -991,7 +991,7 @@ class DownloadManager extends ChangeNotifier {
           final probe = await multiDownloader.probeServer();
           if (ctx.isPaused || ctx.isCancelled) {
             _activeContexts.remove(taskId);
-            client?.close(force: true);
+            client.close(force: true);
             return;
           }
           if (probe.isRangeSupported && probe.totalBytes > 256 * 1024) {
@@ -1015,7 +1015,7 @@ class DownloadManager extends ChangeNotifier {
             await multiDownloader.start();
             if (ctx.isPaused || ctx.isCancelled || multiDownloader.isPaused || multiDownloader.isCancelled) {
               _activeContexts.remove(taskId);
-              client?.close(force: true);
+              client.close(force: true);
               return;
             }
 
@@ -1034,13 +1034,13 @@ class DownloadManager extends ChangeNotifier {
               notifyListeners();
             }
             _activeContexts.remove(taskId);
-            client?.close(force: true);
+            client.close(force: true);
             _processQueue();
             return;
           } catch (e) {
             if (ctx.isPaused || ctx.isCancelled) {
               _activeContexts.remove(taskId);
-              client?.close(force: true);
+              client.close(force: true);
               return;
             }
             logEvent(taskId, 'WARN', 'Multi-connection download failed: $e; falling back to single stream');

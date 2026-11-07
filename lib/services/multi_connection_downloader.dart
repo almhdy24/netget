@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import '../core/segment_planner.dart';
-import '../models/download_status.dart';
 
 const String _defaultUserAgent = 'NetGet/1.0 (Android; en-US)';
 

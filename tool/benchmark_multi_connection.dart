@@ -1,6 +1,4 @@
-import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:netget/services/multi_connection_downloader.dart';
 import 'test_http_server.dart';
 

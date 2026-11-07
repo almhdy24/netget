@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:netget/core/constants.dart';
 import 'package:netget/core/theme.dart';
 import 'package:netget/data/download_repository.dart';
 import 'package:netget/models/download_status.dart';
@@ -10,7 +8,6 @@ import 'package:netget/services/download_manager.dart';
 import 'package:netget/ui/details/download_details_screen.dart';
 import 'package:netget/ui/home_screen.dart';
 import 'package:netget/ui/widgets/add_download_sheet.dart';
-import 'package:netget/ui/widgets/download_card.dart';
 
 class MockRepo implements DownloadRepository {
   List<DownloadTask> tasks = [];
