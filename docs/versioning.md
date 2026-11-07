@@ -53,23 +53,38 @@ Rules enforced by Windows App Installer and Microsoft Store:
 - Every component must be an integer between `0` and `65535`.
 - No strings, hyphens, or pre-release suffixes (`-rc1`, `-beta`) are permitted.
 
-### Mapping Formula
-The Flutter pubspec version is systematically converted as:
-```
-Major  = pubspec.yaml MAJOR
-Minor  = pubspec.yaml MINOR
-Build  = pubspec.yaml PATCH
-Revision = pubspec.yaml BUILD_NUMBER
-```
+### Prerelease Collision Prevention Rule
+Because MSIX strips prerelease suffixes (`-rc1`, `-beta`), a prerelease package and a final release would share the exact same version if the build number were ever reset or reused (causing Windows App Installer to fail or reject the final update as "already installed").
+**Rule**: The Flutter build number (`+build`) MUST be **strictly monotonically increasing and NEVER reused or reset to 1** across prerelease and GA final builds. Every build upload gets an incremented build number.
 
-### Examples
-| `pubspec.yaml` | Android `versionName` | Android `versionCode` | Windows MSIX Version |
-| :--- | :--- | :--- | :--- |
-| `1.0.0-rc1+1` | `1.0.0-rc1` | `1` | `1.0.0.1` |
-| `1.0.0+2` | `1.0.0` | `2` | `1.0.0.2` |
-| `1.0.1+3` | `1.0.1` | `3` | `1.0.1.3` |
-| `1.1.0+4` | `1.1.0` | `4` | `1.1.0.4` |
-| `2.0.0+10` | `2.0.0` | `10` | `2.0.0.10` |
+### Microsoft Store 4th Segment Constraint
+> [!IMPORTANT]
+> The Microsoft Store (Partner Center) documentation reserves the 4th segment (`Revision`) for automated store servicing and ingestion updates, and often requires that submitted packages declare the 4th segment as `0` (`Major.Minor.Build.0`) (*verify in Microsoft Store Partner Center packaging docs*).
+
+### Mapping Schemas
+
+#### Schema A: Sideload & GitHub Direct MSIX (`Major.Minor.Patch.BuildNumber`)
+Used for direct MSIX package downloads, Enterprise sideloading, and GitHub Releases:
+- `Major` = `pubspec MAJOR`
+- `Minor` = `pubspec MINOR`
+- `Build` = `pubspec PATCH`
+- `Revision` = `pubspec BUILD_NUMBER`
+
+#### Schema B: Microsoft Store Ingestion (`Major.Minor.BuildNumber.0`)
+Used when submitting packages directly to Microsoft Partner Center:
+- `Major` = `pubspec MAJOR`
+- `Minor` = `pubspec MINOR`
+- `Build` = `pubspec BUILD_NUMBER` (strictly increasing)
+- `Revision` = `0` (reserved by Microsoft Store)
+
+### Version Progression Example
+| Release State | `pubspec.yaml` | Android `versionName` | Android `versionCode` | Sideload MSIX | MS Store MSIX ("verify") |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Release Candidate 1** | `1.0.0-rc1+1` | `1.0.0-rc1` | `1` | `1.0.0.1` | `1.0.1.0` |
+| **Release Candidate 2** | `1.0.0-rc2+2` | `1.0.0-rc2` | `2` | `1.0.0.2` | `1.0.2.0` |
+| **v1.0.0 Final GA** | `1.0.0+3` | `1.0.0` | `3` | `1.0.0.3` | `1.0.3.0` |
+| **v1.0.1 Hotfix** | `1.0.1+4` | `1.0.1` | `4` | `1.0.1.4` | `1.0.4.0` |
+| **v1.1.0 Feature** | `1.1.0+5` | `1.1.0` | `5` | `1.1.0.5` | `1.1.5.0` |
 
 ---
 
