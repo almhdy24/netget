@@ -41,6 +41,9 @@ All application state is stored locally on the user's device and is never transm
 3. **In-Memory Volatile Logs & Metrics**:
    - Ring buffer logs: In-memory list capped at 200 entries ([`lib/services/download_manager.dart:271`](file:///data/data/com.termux/files/home/projects/netget/lib/services/download_manager.dart#L271)). Not written to disk.
    - Speed sparkline history: In-memory list capped at 60 samples ([`lib/services/download_manager.dart:288`](file:///data/data/com.termux/files/home/projects/netget/lib/services/download_manager.dart#L288)). Not written to disk.
+4. **Android Cloud & Local Backup (`android:allowBackup`)**:
+   - Explicitly configured to `android:allowBackup="false"` in [`android/app/src/main/AndroidManifest.xml:12`](file:///data/data/com.termux/files/home/projects/netget/android/app/src/main/AndroidManifest.xml#L12).
+   - Disables automatic Google Drive cloud backups and ADB backup extraction of `netget_tasks.json`, task history, and downloaded payload files, preventing unintended data transfer to cloud backup providers.
 
 ---
 
