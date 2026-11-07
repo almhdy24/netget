@@ -34,8 +34,9 @@ class NetGetApp extends StatefulWidget {
 }
 
 class _NetGetAppState extends State<NetGetApp> {
-  final ValueNotifier<ThemeMode> _themeModeNotifier =
-      ValueNotifier<ThemeMode>(ThemeMode.system);
+  final ValueNotifier<ThemeMode> _themeModeNotifier = ValueNotifier<ThemeMode>(
+    ThemeMode.system,
+  );
 
   @override
   void dispose() {

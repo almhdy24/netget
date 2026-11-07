@@ -52,9 +52,15 @@ void main() {
     // Verify Transfer Monitor summary card
     expect(find.text('Transfer Monitor'), findsOneWidget);
     expect(find.text('Active'), findsOneWidget); // In monitor stat item
-    expect(find.textContaining('Active ('), findsOneWidget); // In segmented button
+    expect(
+      find.textContaining('Active ('),
+      findsOneWidget,
+    ); // In segmented button
     expect(find.text('Done'), findsOneWidget); // In monitor stat item
-    expect(find.textContaining('Done ('), findsOneWidget); // In segmented button
+    expect(
+      find.textContaining('Done ('),
+      findsOneWidget,
+    ); // In segmented button
 
     // Verify Empty State
     expect(find.text('No Downloads Yet'), findsOneWidget);

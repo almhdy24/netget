@@ -31,11 +31,15 @@ void main() {
 
     test('extractFileNameFromUrl parses clean file names', () {
       expect(
-        NetGetUtils.extractFileNameFromUrl('https://example.com/files/app-v1.apk'),
+        NetGetUtils.extractFileNameFromUrl(
+          'https://example.com/files/app-v1.apk',
+        ),
         'app-v1.apk',
       );
       expect(
-        NetGetUtils.extractFileNameFromUrl('https://example.com/download?id=123/sample%20video.mp4'),
+        NetGetUtils.extractFileNameFromUrl(
+          'https://example.com/download?id=123/sample%20video.mp4',
+        ),
         'sample video.mp4',
       );
       expect(
@@ -53,19 +57,28 @@ void main() {
         NetGetUtils.sanitizeFileName('   clean_file.tar.gz   '),
         'clean_file.tar.gz',
       );
-      expect(
-        NetGetUtils.sanitizeFileName(''),
-        startsWith('download_'),
-      );
+      expect(NetGetUtils.sanitizeFileName(''), startsWith('download_'));
     });
 
     test('getFileTypeIcon returns corresponding icon for extensions', () {
       expect(NetGetUtils.getFileTypeIcon('app.apk'), Icons.android_outlined);
-      expect(NetGetUtils.getFileTypeIcon('archive.zip'), Icons.folder_zip_outlined);
-      expect(NetGetUtils.getFileTypeIcon('song.mp3'), Icons.audiotrack_outlined);
+      expect(
+        NetGetUtils.getFileTypeIcon('archive.zip'),
+        Icons.folder_zip_outlined,
+      );
+      expect(
+        NetGetUtils.getFileTypeIcon('song.mp3'),
+        Icons.audiotrack_outlined,
+      );
       expect(NetGetUtils.getFileTypeIcon('movie.mp4'), Icons.movie_outlined);
-      expect(NetGetUtils.getFileTypeIcon('doc.pdf'), Icons.picture_as_pdf_outlined);
-      expect(NetGetUtils.getFileTypeIcon('data.bin'), Icons.insert_drive_file_outlined);
+      expect(
+        NetGetUtils.getFileTypeIcon('doc.pdf'),
+        Icons.picture_as_pdf_outlined,
+      );
+      expect(
+        NetGetUtils.getFileTypeIcon('data.bin'),
+        Icons.insert_drive_file_outlined,
+      );
     });
   });
 }

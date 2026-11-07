@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 class NetGetTheme {
   // Brand Colors
-  static const Color primaryBlue = Color(0xFF1565C0); // Classic IDM-inspired blue
+  static const Color primaryBlue = Color(
+    0xFF1565C0,
+  ); // Classic IDM-inspired blue
   static const Color accentCyan = Color(0xFF00ACC1);
   static const Color successGreen = Color(0xFF2E7D32);
   static const Color warningAmber = Color(0xFFF57C00);
@@ -40,7 +42,10 @@ class NetGetTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: Color(0xFFCFD4DC)),
@@ -92,7 +97,10 @@ class NetGetTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFF1B1E22),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: Color(0xFF2C3138)),

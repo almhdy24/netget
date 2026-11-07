@@ -103,10 +103,7 @@ void main() {
 
   group('DownloadManager', () {
     test('throws ArgumentError on invalid URLs', () async {
-      expect(
-        () => manager.addDownload(url: ''),
-        throwsArgumentError,
-      );
+      expect(() => manager.addDownload(url: ''), throwsArgumentError);
       expect(
         () => manager.addDownload(url: 'ftp://ftp.example.com/file.zip'),
         throwsArgumentError,
@@ -117,18 +114,21 @@ void main() {
       );
     });
 
-    test('addDownload adds task, transitions to downloading, and persists', () async {
-      final task = await manager.addDownload(
-        url: 'https://example.com/test.zip',
-        customFileName: 'custom.zip',
-      );
+    test(
+      'addDownload adds task, transitions to downloading, and persists',
+      () async {
+        final task = await manager.addDownload(
+          url: 'https://example.com/test.zip',
+          customFileName: 'custom.zip',
+        );
 
-      expect(task.fileName, 'custom.zip');
-      expect(task.url, 'https://example.com/test.zip');
-      expect(manager.tasks.length, 1);
-      expect(repository.inMemory.length, 1);
-      expect(manager.tasks.first.status, DownloadStatus.downloading);
-    });
+        expect(task.fileName, 'custom.zip');
+        expect(task.url, 'https://example.com/test.zip');
+        expect(manager.tasks.length, 1);
+        expect(repository.inMemory.length, 1);
+        expect(manager.tasks.first.status, DownloadStatus.downloading);
+      },
+    );
 
     test('pauseDownload transitions task to paused state', () async {
       final task = await manager.addDownload(
@@ -212,24 +212,28 @@ void main() {
       expect(manager.tasks.first.id, '2');
     });
 
-    test('handles network exceptions gracefully and records failure message', () async {
-      final errorManager = DownloadManager(
-        repository: repository,
-        clientFactory: () => throw const SocketException('Connection refused by host'),
-        downloadsDirResolver: () async => tempDir,
-      );
-      await errorManager.init();
+    test(
+      'handles network exceptions gracefully and records failure message',
+      () async {
+        final errorManager = DownloadManager(
+          repository: repository,
+          clientFactory: () =>
+              throw const SocketException('Connection refused by host'),
+          downloadsDirResolver: () async => tempDir,
+        );
+        await errorManager.init();
 
-      final task = await errorManager.addDownload(
-        url: 'https://example.com/fail.zip',
-      );
+        final task = await errorManager.addDownload(
+          url: 'https://example.com/fail.zip',
+        );
 
-      // Wait a microtask tick for async _startDownloading to catch exception
-      await Future.delayed(const Duration(milliseconds: 50));
+        // Wait a microtask tick for async _startDownloading to catch exception
+        await Future.delayed(const Duration(milliseconds: 50));
 
-      final failed = errorManager.tasks.firstWhere((t) => t.id == task.id);
-      expect(failed.status, DownloadStatus.failed);
-      expect(failed.errorMessage, contains('Connection refused'));
-    });
+        final failed = errorManager.tasks.firstWhere((t) => t.id == task.id);
+        expect(failed.status, DownloadStatus.failed);
+        expect(failed.errorMessage, contains('Connection refused'));
+      },
+    );
   });
 }

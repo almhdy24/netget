@@ -1,6 +1,19 @@
 import 'package:flutter/material.dart';
+import 'constants.dart';
 
 class NetGetUtils {
+  /// Tabular figures text style helper so numbers don't jitter during downloads.
+  static TextStyle tabularStyle(TextStyle? baseStyle) {
+    final style = baseStyle ?? const TextStyle();
+    return style.copyWith(
+      fontFeatures: [
+        ...?style.fontFeatures,
+        const FontFeature.tabularFigures(),
+      ],
+      fontFamily: 'monospace',
+    );
+  }
+
   /// Formats byte count into human-readable string (B, KB, MB, GB).
   static String formatBytes(int bytes) {
     if (bytes <= 0) return '0 B';
@@ -27,18 +40,31 @@ class NetGetUtils {
     final minutes = seconds ~/ 60;
     final remainingSecs = seconds % 60;
     if (minutes < 60) {
-      return remainingSecs > 0 ? '${minutes}m ${remainingSecs}s' : '${minutes}m';
+      return remainingSecs > 0
+          ? '${minutes}m ${remainingSecs}s'
+          : '${minutes}m';
     }
     final hours = minutes ~/ 60;
     final remainingMins = minutes % 60;
     return '${hours}h ${remainingMins}m';
   }
 
+  /// Formats elapsed seconds into HH:MM:SS or MM:SS.
+  static String formatElapsed(int seconds) {
+    if (seconds < 0) return '00:00';
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    if (h > 0) {
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
   /// Extracts clean file name from URL or returns a fallback name.
   static String extractFileNameFromUrl(String rawUrl) {
     try {
       final uri = Uri.parse(rawUrl);
-      // Check path segments for a filename with an extension
       final pathSegments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
       for (final segment in pathSegments.reversed) {
         final decoded = Uri.decodeComponent(segment);
@@ -49,7 +75,6 @@ class NetGetUtils {
           }
         }
       }
-      // If path didn't have an extension, check query parameters
       for (final val in uri.queryParameters.values) {
         final lastPart = val.contains('/') ? val.split('/').last : val;
         final decoded = Uri.decodeComponent(lastPart);
@@ -80,9 +105,131 @@ class NetGetUtils {
     return cleaned;
   }
 
+  /// Parses RFC 5987 / RFC 6266 Content-Disposition header.
+  static String? parseContentDisposition(String? header) {
+    if (header == null || header.isEmpty) return null;
+    try {
+      // filename*=UTF-8''...
+      final utf8Match = RegExp(
+        r"filename\*=UTF-8''([^;]+)",
+        caseSensitive: false,
+      ).firstMatch(header);
+      if (utf8Match != null) {
+        return Uri.decodeComponent(utf8Match.group(1) ?? '').trim();
+      }
+
+      // filename="..."
+      final quotedMatch = RegExp(
+        r'filename="([^"]+)"',
+        caseSensitive: false,
+      ).firstMatch(header);
+      if (quotedMatch != null) {
+        return quotedMatch.group(1)?.trim();
+      }
+
+      // filename=...
+      final plainMatch = RegExp(
+        r'filename=([^;]+)',
+        caseSensitive: false,
+      ).firstMatch(header);
+      if (plainMatch != null) {
+        return plainMatch.group(1)?.trim();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Classifies a file into one of the DownloadCategory categories.
+  static DownloadCategory classifyCategory(
+    String fileName, [
+    String? mimeType,
+  ]) {
+    final mime = (mimeType ?? '').toLowerCase();
+    if (mime.startsWith('video/')) return DownloadCategory.video;
+    if (mime.startsWith('audio/')) return DownloadCategory.audio;
+    if (mime.startsWith('image/')) return DownloadCategory.images;
+    if (mime.contains('pdf') ||
+        mime.contains('document') ||
+        mime.contains('text/')) {
+      return DownloadCategory.documents;
+    }
+    if (mime.contains('zip') ||
+        mime.contains('tar') ||
+        mime.contains('compressed')) {
+      return DownloadCategory.archives;
+    }
+    if (mime.contains('android.package-archive')) return DownloadCategory.apps;
+
+    final dot = fileName.lastIndexOf('.');
+    final ext = dot >= 0 ? fileName.substring(dot + 1).toLowerCase() : '';
+
+    switch (ext) {
+      case 'mp4':
+      case 'mkv':
+      case 'avi':
+      case 'mov':
+      case 'webm':
+      case 'flv':
+      case 'wmv':
+      case '3gp':
+      case 'm4v':
+        return DownloadCategory.video;
+      case 'mp3':
+      case 'wav':
+      case 'flac':
+      case 'aac':
+      case 'ogg':
+      case 'm4a':
+      case 'wma':
+      case 'opus':
+        return DownloadCategory.audio;
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'webp':
+      case 'svg':
+      case 'bmp':
+      case 'ico':
+      case 'tiff':
+        return DownloadCategory.images;
+      case 'pdf':
+      case 'doc':
+      case 'docx':
+      case 'txt':
+      case 'odt':
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+      case 'ppt':
+      case 'pptx':
+      case 'epub':
+        return DownloadCategory.documents;
+      case 'zip':
+      case 'rar':
+      case '7z':
+      case 'tar':
+      case 'gz':
+      case 'bz2':
+      case 'xz':
+      case 'iso':
+      case 'tgz':
+        return DownloadCategory.archives;
+      case 'apk':
+      case 'xapk':
+      case 'apks':
+      case 'aab':
+        return DownloadCategory.apps;
+      default:
+        return DownloadCategory.other;
+    }
+  }
+
   /// Returns appropriate Material Icon for a given file name/extension.
   static IconData getFileTypeIcon(String fileName) {
-    final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+    final ext = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : '';
     switch (ext) {
       case 'zip':
       case 'rar':
@@ -128,6 +275,28 @@ class NetGetUtils {
         return Icons.disc_full_outlined;
       default:
         return Icons.insert_drive_file_outlined;
+    }
+  }
+
+  /// Category icon helper.
+  static IconData getCategoryIcon(DownloadCategory category) {
+    switch (category) {
+      case DownloadCategory.all:
+        return Icons.all_inbox_rounded;
+      case DownloadCategory.video:
+        return Icons.movie_outlined;
+      case DownloadCategory.audio:
+        return Icons.audiotrack_outlined;
+      case DownloadCategory.images:
+        return Icons.image_outlined;
+      case DownloadCategory.documents:
+        return Icons.description_outlined;
+      case DownloadCategory.archives:
+        return Icons.folder_zip_outlined;
+      case DownloadCategory.apps:
+        return Icons.android_outlined;
+      case DownloadCategory.other:
+        return Icons.category_outlined;
     }
   }
 }
