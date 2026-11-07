@@ -24,6 +24,12 @@ All notable changes to the NetGet project are documented in this file.
   - Empty state with on-tap clipboard paste suggestion chip.
   - Add Download sheet with auto-paste suggestion, detected file name and size via HEAD probe, and segmented connection selector (1, 2, 4 streams; default 1).
   - High-performance, zero-jank UI updates: per-task `ValueNotifier<DownloadTask>` handles ensure high-frequency progress ticks rebuild only the active card rather than the entire dashboard.
+- **Theme Selection & Persistence**:
+  - Atomic persistence of theme preferences in local JSON (`netget_settings.json`).
+  - Material 3 Theme Selection dialog with System default, Light, and Dark modes.
+  - Reactive theme icons in the AppBar and overflow menu displaying active state.
+- **Custom About Dialog & Open-Source Licenses**:
+  - Replaced standard Flutter `AboutDialog` with a custom dialog and dedicated open-source license viewer, eliminating framework branding ("Powered by Flutter").
 
 ### Fixed
 - **Stale Error Bug**:
