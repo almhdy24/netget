@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print, prefer_interpolation_to_compose_strings
+
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netget/services/multi_connection_downloader.dart';
