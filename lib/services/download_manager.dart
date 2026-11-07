@@ -1146,14 +1146,23 @@ class DownloadManager extends ChangeNotifier {
 
       final shouldRange = existingBytes > 0 && currentTask.resumable;
       if (shouldRange) {
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingBytes-');
-        if (currentTask.etag != null) {
-          request.headers.set(HttpHeaders.ifRangeHeader, currentTask.etag!);
-        } else if (currentTask.lastModified != null) {
-          request.headers.set(
-            HttpHeaders.ifRangeHeader,
-            currentTask.lastModified!,
-          );
+        String? ifRangeValidator;
+        if (NetGetUtils.isStrongEtag(currentTask.etag)) {
+          ifRangeValidator = currentTask.etag;
+        } else if (currentTask.lastModified != null && currentTask.lastModified!.trim().isNotEmpty) {
+          ifRangeValidator = currentTask.lastModified;
+        }
+
+        if (ifRangeValidator != null) {
+          request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingBytes-');
+          request.headers.set(HttpHeaders.ifRangeHeader, ifRangeValidator);
+        } else {
+          existingBytes = 0;
+          try {
+            final raf = await file.open(mode: FileMode.write);
+            await raf.truncate(0);
+            await raf.close();
+          } catch (_) {}
         }
       }
 
@@ -1177,6 +1186,21 @@ class DownloadManager extends ChangeNotifier {
       bool resumable = currentTask.resumable;
 
       if (statusCode == HttpStatus.partialContent) {
+        final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+        if (contentRange != null && contentRange.startsWith('bytes ')) {
+          final rangePart = contentRange.substring(6).split('/')[0].trim();
+          final rangeParts = rangePart.split('-');
+          if (rangeParts.isNotEmpty) {
+            final actualStart = int.tryParse(rangeParts[0]);
+            if (actualStart != null && actualStart != existingBytes) {
+              await response.drain<void>();
+              throw HttpException(
+                'Server returned unexpected Content-Range start: $actualStart != requested $existingBytes',
+                uri: uri,
+              );
+            }
+          }
+        }
         isAppend = true;
         resumable = true;
         final len = response.contentLength;
