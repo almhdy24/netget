@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netget/data/download_repository.dart';
@@ -34,12 +36,47 @@ class TestDownloadRepository implements DownloadRepository {
   }
 }
 
+class DummyHttpClient implements HttpClient {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async => DummyHttpRequest();
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class DummyHttpRequest implements HttpClientRequest {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  final HttpHeaders _headers = DummyHttpHeaders();
+
+  @override
+  HttpHeaders get headers => _headers;
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {}
+
+  @override
+  Future<HttpClientResponse> close() => Completer<HttpClientResponse>().future;
+}
+
+class DummyHttpHeaders implements HttpHeaders {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   testWidgets('NetGetApp renders home dashboard, empty state, and controls', (
     WidgetTester tester,
   ) async {
     final repository = TestDownloadRepository();
-    final manager = DownloadManager(repository: repository);
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
     addTearDown(manager.dispose);
     await manager.init();
 
@@ -91,7 +128,10 @@ void main() {
       ),
     ];
 
-    final manager = DownloadManager(repository: repository);
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
     addTearDown(manager.dispose);
     await manager.init();
 
@@ -102,5 +142,41 @@ void main() {
     expect(find.byType(DownloadCard), findsOneWidget);
     expect(find.text('big_file.zip'), findsOneWidget);
     expect(find.text('Complete'), findsOneWidget);
+  });
+
+  testWidgets('DownloadCard hides error message when task transitions away from failed', (
+    WidgetTester tester,
+  ) async {
+    final repository = TestDownloadRepository();
+    final failedTask = DownloadTask(
+      id: 'failed_1',
+      url: 'https://example.com/err_file.zip',
+      fileName: 'err_file.zip',
+      savePath: '/tmp/err_file.zip',
+      status: DownloadStatus.failed,
+      errorMessage: 'Connection timed out',
+      createdAt: DateTime.now(),
+    );
+    repository.tasks = [failedTask];
+
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
+    addTearDown(manager.dispose);
+    await manager.init();
+
+    await tester.pumpWidget(NetGetApp(manager: manager));
+    await tester.pumpAndSettle();
+
+    // Verify error is initially visible
+    expect(find.text('Connection timed out'), findsOneWidget);
+
+    // Retry download
+    await manager.retryDownload('failed_1');
+    await tester.pump();
+
+    // Verify error is now completely gone from UI
+    expect(find.text('Connection timed out'), findsNothing);
   });
 }

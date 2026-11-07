@@ -574,7 +574,8 @@ class DownloadCard extends StatelessWidget {
               _buildStatsRow(context),
 
               // Error message if failed
-              if (task.errorMessage != null &&
+              if (task.status.isFailed &&
+                  task.errorMessage != null &&
                   task.errorMessage!.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Container(

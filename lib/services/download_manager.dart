@@ -579,7 +579,9 @@ class DownloadManager extends ChangeNotifier {
       status: DownloadStatus.queued,
       speedBytesPerSec: 0.0,
       errorMessage: null,
+      clearError: true,
       completedAt: null,
+      clearCompletedAt: true,
       elapsedSeconds: 0,
       segments: SegmentPlanner.planInitialSegments(
         totalBytes: task.totalBytes,
@@ -677,6 +679,7 @@ class DownloadManager extends ChangeNotifier {
     _tasks[index] = task.copyWith(
       status: DownloadStatus.queued,
       errorMessage: null,
+      clearError: true,
       speedBytesPerSec: 0.0,
     );
 
@@ -973,6 +976,7 @@ class DownloadManager extends ChangeNotifier {
       status: DownloadStatus.downloading,
       speedBytesPerSec: 0.0,
       errorMessage: null,
+      clearError: true,
     );
     _tasks[index] = currentTask;
     logEvent(taskId, 'PROGRESS', 'Connecting to server...');
@@ -1491,6 +1495,19 @@ class DownloadManager extends ChangeNotifier {
   }
 
   String cleanErrorMessageForTesting(dynamic error) => _cleanErrorMessage(error);
+
+  void setTaskFailureForTesting(String taskId, String error) {
+    final idx = _tasks.indexWhere((t) => t.id == taskId);
+    if (idx >= 0) {
+      _tasks[idx] = _tasks[idx].copyWith(
+        status: DownloadStatus.failed,
+        errorMessage: error,
+        speedBytesPerSec: 0.0,
+      );
+      saveImmediate();
+      notifyListeners();
+    }
+  }
 
   String _cleanErrorMessage(dynamic error) {
     if (error is DiskSpaceException) {
