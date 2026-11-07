@@ -8,11 +8,13 @@ import '../core/utils.dart';
 import '../data/download_repository.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
+import 'multi_connection_downloader.dart';
 
 class _ActiveDownloadContext {
   HttpClientRequest? request;
   StreamSubscription<List<int>>? subscription;
   IOSink? sink;
+  MultiConnectionDownloader? multiDownloader;
   bool isPaused = false;
   bool isCancelled = false;
 }
@@ -107,6 +109,10 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, bool> _activeQueues = {
     NetGetConstants.defaultQueueName: true,
   };
+
+  /// Default connections setting (default 1 preserves legacy single-stream behavior;
+  /// multi-connection engine is activated when connections > 1 and server supports ranges).
+  int defaultConnections = 1;
 
   DateTime Function() clock = DateTime.now;
   DateTime _lastSaveTime = DateTime.fromMillisecondsSinceEpoch(0);
@@ -385,7 +391,7 @@ class DownloadManager extends ChangeNotifier {
         : await NetGetConstants.getDownloadsDirectory(subFolder: folderName);
     final savePath = await _resolveUniqueFilePath(downloadsDir.path, fileName);
 
-    final connCount = connectionCount ?? NetGetConstants.defaultConnections;
+    final connCount = connectionCount ?? defaultConnections;
     final isResumable = resumable ?? true;
     final fileTotalBytes = totalBytes ?? -1;
 
@@ -573,6 +579,9 @@ class DownloadManager extends ChangeNotifier {
     final ctx = _activeContexts[id];
     if (ctx != null) {
       ctx.isPaused = true;
+      if (ctx.multiDownloader != null) {
+        await ctx.multiDownloader!.pause();
+      }
       try {
         await ctx.subscription?.cancel();
         await ctx.sink?.flush();
@@ -632,6 +641,9 @@ class DownloadManager extends ChangeNotifier {
     final ctx = _activeContexts[id];
     if (ctx != null) {
       ctx.isCancelled = true;
+      if (ctx.multiDownloader != null) {
+        await ctx.multiDownloader!.cancel();
+      }
       try {
         await ctx.subscription?.cancel();
         await ctx.sink?.flush();
@@ -927,6 +939,115 @@ class DownloadManager extends ChangeNotifier {
       }
 
       final uri = Uri.parse(currentTask.url);
+
+      // Multi-connection engine path: used when connectionCount > 1 and server supports ranges
+      if (currentTask.connectionCount > 1) {
+        final multiDownloader = MultiConnectionDownloader(
+          id: taskId,
+          uri: uri,
+          savePath: currentTask.savePath,
+          connectionCount: currentTask.connectionCount,
+          etag: currentTask.etag,
+          lastModified: currentTask.lastModified,
+          initialSegments: currentTask.segments,
+          clientFactory: () => _createHttpClient(),
+          onProgress: (downloaded, total, speed, segs) {
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
+              final samples = _taskSpeedSamples.putIfAbsent(taskId, () => []);
+              samples.add(speed);
+              if (samples.length > 60) samples.removeAt(0);
+
+              final currentElapsed = (_taskElapsedSeconds[taskId] ?? 0) + 1;
+              _taskElapsedSeconds[taskId] = currentElapsed;
+
+              _tasks[idx] = _tasks[idx].copyWith(
+                downloadedBytes: downloaded,
+                totalBytes: total > 0 ? total : _tasks[idx].totalBytes,
+                speedBytesPerSec: speed,
+                elapsedSeconds: currentElapsed,
+                segments: segs,
+              );
+              notifyListeners();
+              scheduleThrottledSave();
+            }
+          },
+          onCheckpoint: (segs) async {
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0) {
+              _tasks[idx] = _tasks[idx].copyWith(segments: segs);
+              await saveImmediate();
+            }
+          },
+          onLog: (lvl, msg) {
+            logEvent(taskId, lvl, msg);
+          },
+        );
+
+        ctx.multiDownloader = multiDownloader;
+
+        bool shouldUseMulti = false;
+        try {
+          final probe = await multiDownloader.probeServer();
+          if (ctx.isPaused || ctx.isCancelled) {
+            _activeContexts.remove(taskId);
+            client?.close(force: true);
+            return;
+          }
+          if (probe.isRangeSupported && probe.totalBytes > 256 * 1024) {
+            shouldUseMulti = true;
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0) {
+              _tasks[idx] = _tasks[idx].copyWith(
+                totalBytes: probe.totalBytes,
+                etag: probe.etag ?? _tasks[idx].etag,
+                lastModified: probe.lastModified ?? _tasks[idx].lastModified,
+                resumable: true,
+              );
+            }
+          }
+        } catch (e) {
+          logEvent(taskId, 'WARN', 'Multi-connection probe: $e; falling back to single stream');
+        }
+
+        if (shouldUseMulti) {
+          try {
+            await multiDownloader.start();
+            if (ctx.isPaused || ctx.isCancelled || multiDownloader.isPaused || multiDownloader.isCancelled) {
+              _activeContexts.remove(taskId);
+              client?.close(force: true);
+              return;
+            }
+
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
+              _tasks[idx] = _tasks[idx].copyWith(
+                status: DownloadStatus.completed,
+                downloadedBytes: multiDownloader.totalBytes > 0 ? multiDownloader.totalBytes : _tasks[idx].downloadedBytes,
+                totalBytes: multiDownloader.totalBytes > 0 ? multiDownloader.totalBytes : _tasks[idx].totalBytes,
+                speedBytesPerSec: 0.0,
+                completedAt: DateTime.now(),
+                segments: multiDownloader.segments,
+              );
+              logEvent(taskId, 'INFO', 'Download completed successfully!');
+              await saveImmediate();
+              notifyListeners();
+            }
+            _activeContexts.remove(taskId);
+            client?.close(force: true);
+            _processQueue();
+            return;
+          } catch (e) {
+            if (ctx.isPaused || ctx.isCancelled) {
+              _activeContexts.remove(taskId);
+              client?.close(force: true);
+              return;
+            }
+            logEvent(taskId, 'WARN', 'Multi-connection download failed: $e; falling back to single stream');
+          }
+        }
+      }
+
       final request = await client.getUrl(uri);
       ctx.request = request;
 

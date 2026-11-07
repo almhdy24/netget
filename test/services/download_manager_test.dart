@@ -268,5 +268,23 @@ void main() {
       );
       testManager.dispose();
     });
+
+    test('addDownload defaults to connectionCount 1 preserving single-stream path', () async {
+      final repo = MockDownloadRepository();
+      final testManager = DownloadManager(
+        repository: repo,
+        downloadsDirResolver: () async => tempDir,
+      );
+      await testManager.init();
+
+      final task = await testManager.addDownload(
+        url: 'https://example.com/test.zip',
+        startNow: false,
+      );
+
+      expect(task.connectionCount, equals(1));
+      expect(testManager.defaultConnections, equals(1));
+      testManager.dispose();
+    });
   });
 }
