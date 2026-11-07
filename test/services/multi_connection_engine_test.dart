@@ -340,4 +340,87 @@ void main() {
     );
     expect(await saveFile.exists(), isFalse, reason: 'File must not be created or truncated when disk space is insufficient');
   });
+
+  test('Scenario 16: Engine killed mid-download, new instance resumes from persisted segments with matching SHA-256', () async {
+    final saveFile = File('${tempDir.path}/test_killed_resume.bin');
+    final uriAbort = Uri.parse('http://127.0.0.1:${server.actualPort}/download?mode=abort_midway');
+    final uriNormal = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
+
+    final downloader1 = MultiConnectionDownloader(
+      id: 'test_16_1',
+      uri: uriAbort,
+      savePath: saveFile.path,
+      connectionCount: 4,
+      clientFactory: () => HttpClient(),
+    );
+
+    // First instance gets abruptly aborted midway by the socket termination
+    try {
+      await downloader1.start();
+    } catch (_) {}
+
+    final savedSegments = downloader1.segments.map((s) => s.copyWith()).toList();
+    final originalEtag = downloader1.etag;
+
+    final partialDownloaded = savedSegments.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+    expect(partialDownloaded, greaterThan(0), reason: 'First run must have persisted partial bytes');
+    expect(partialDownloaded, lessThan(server.testData.length), reason: 'First run must not have completed');
+
+    // Create brand-new instance simulating process restart
+    final downloader2 = MultiConnectionDownloader(
+      id: 'test_16_2',
+      uri: uriNormal,
+      savePath: saveFile.path,
+      connectionCount: 4,
+      etag: originalEtag,
+      initialSegments: savedSegments,
+      clientFactory: () => HttpClient(),
+    );
+
+    await downloader2.start();
+
+    // Verify completion and SHA-256 match
+    expect(await saveFile.exists(), isTrue);
+    final finalBytes = await saveFile.readAsBytes();
+    expect(finalBytes.length, equals(server.testData.length));
+    expect(finalBytes, equals(server.testData));
+  });
+
+  test('Scenario 17: Engine killed mid-download, resume fails safely when server ETag mutated after restart', () async {
+    final saveFile = File('${tempDir.path}/test_killed_etag_changed.bin');
+    final uriAbort = Uri.parse('http://127.0.0.1:${server.actualPort}/download?mode=abort_midway');
+
+    final downloader1 = MultiConnectionDownloader(
+      id: 'test_17_1',
+      uri: uriAbort,
+      savePath: saveFile.path,
+      connectionCount: 4,
+      clientFactory: () => HttpClient(),
+    );
+
+    try {
+      await downloader1.start();
+    } catch (_) {}
+
+    final savedSegments = downloader1.segments.map((s) => s.copyWith()).toList();
+    expect(savedSegments.isNotEmpty, isTrue);
+
+    // Simulate server file mutation: request the etag_changed endpoint on restart
+    final uriChanged = Uri.parse('http://127.0.0.1:${server.actualPort}/download?mode=etag_changed');
+    final downloaderRestart = MultiConnectionDownloader(
+      id: 'test_17_2',
+      uri: uriChanged,
+      savePath: saveFile.path,
+      connectionCount: 4,
+      etag: downloader1.etag, // stale ETag from before kill
+      initialSegments: savedSegments,
+      clientFactory: () => HttpClient(),
+    );
+
+    // Resume must be rejected with ETag mismatch exception to prevent corrupting the file
+    expect(
+      downloaderRestart.start(),
+      throwsA(predicate((e) => e is HttpException && e.message.contains('ETag mismatch'))),
+    );
+  });
 }
