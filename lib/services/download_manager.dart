@@ -921,21 +921,47 @@ class DownloadManager extends ChangeNotifier {
         existingBytes = await file.length();
       }
 
-      if (currentTask.totalBytes > 0 &&
-          existingBytes >= currentTask.totalBytes) {
+      // Restart / Resume verification:
+      // A file may be preallocated on disk to totalBytes with holes.
+      // NEVER mark completed or assume done solely based on file.length() >= totalBytes.
+      // A task is only completed if its status is already completed, or all segments are verified complete.
+      final areSegmentsVerifiedComplete = currentTask.segments.isNotEmpty &&
+          currentTask.segments.every((s) => s.isFinished && s.isCompleted) &&
+          currentTask.downloadedBytes >= currentTask.totalBytes &&
+          currentTask.totalBytes > 0;
+
+      if (currentTask.status == DownloadStatus.completed || areSegmentsVerifiedComplete) {
         _tasks[index] = currentTask.copyWith(
           downloadedBytes: currentTask.totalBytes,
           status: DownloadStatus.completed,
           speedBytesPerSec: 0.0,
-          completedAt: DateTime.now(),
+          completedAt: currentTask.completedAt ?? DateTime.now(),
         );
-        logEvent(taskId, 'INFO', 'File already complete');
+        logEvent(taskId, 'INFO', 'File already verified complete');
         _activeContexts.remove(taskId);
         client.close(force: true);
         await saveImmediate();
         notifyListeners();
         _processQueue();
         return;
+      }
+
+      // If a multi-connection task has preallocated existing bytes on disk but segment metadata
+      // is missing, we cannot know which byte ranges are actual data vs unwritten holes.
+      // Restart cleanly from byte 0 to guarantee file integrity.
+      if (currentTask.connectionCount > 1 && currentTask.segments.isEmpty && existingBytes > 0) {
+        logEvent(taskId, 'WARN', 'Task has preallocated file with missing segment records. Restarting from byte 0.');
+        try {
+          final raf = await file.open(mode: FileMode.write);
+          await raf.truncate(0);
+          await raf.close();
+        } catch (_) {}
+        existingBytes = 0;
+        currentTask = currentTask.copyWith(
+          downloadedBytes: 0,
+          segments: [],
+        );
+        _tasks[index] = currentTask;
       }
 
       final uri = Uri.parse(currentTask.url);
@@ -966,7 +992,7 @@ class DownloadManager extends ChangeNotifier {
                 totalBytes: total > 0 ? total : _tasks[idx].totalBytes,
                 speedBytesPerSec: speed,
                 elapsedSeconds: currentElapsed,
-                segments: segs,
+                // Segment offsets in task state are strictly updated via flushed onCheckpoint
               );
               notifyListeners();
               scheduleThrottledSave();
@@ -975,8 +1001,12 @@ class DownloadManager extends ChangeNotifier {
           onCheckpoint: (segs) async {
             final idx = _tasks.indexWhere((t) => t.id == taskId);
             if (idx >= 0) {
-              _tasks[idx] = _tasks[idx].copyWith(segments: segs);
-              await saveImmediate();
+              final flushedBytes = segs.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+              _tasks[idx] = _tasks[idx].copyWith(
+                segments: segs,
+                downloadedBytes: flushedBytes,
+              );
+              scheduleThrottledSave();
             }
           },
           onLog: (lvl, msg) {
@@ -1007,6 +1037,27 @@ class DownloadManager extends ChangeNotifier {
             }
           }
         } catch (e) {
+          if (e is HttpException && e.message.contains('Server file changed')) {
+            logEvent(taskId, 'WARN', 'Server ETag changed after restart: $e. Discarding partial file and restarting from 0.');
+            try {
+              final raf = await file.open(mode: FileMode.write);
+              await raf.truncate(0);
+              await raf.close();
+            } catch (_) {}
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0) {
+              _tasks[idx] = _tasks[idx].copyWith(
+                downloadedBytes: 0,
+                etag: null,
+                segments: [],
+              );
+              await saveImmediate();
+            }
+            _activeContexts.remove(taskId);
+            client.close(force: true);
+            _startDownloading(taskId);
+            return;
+          }
           logEvent(taskId, 'WARN', 'Multi-connection probe: $e; falling back to single stream');
         }
 
@@ -1043,9 +1094,42 @@ class DownloadManager extends ChangeNotifier {
               client.close(force: true);
               return;
             }
+            if (e is HttpException && e.message.contains('Server file changed')) {
+              logEvent(taskId, 'WARN', 'Server ETag changed mid-download: $e. Discarding partial file and restarting from 0.');
+              try {
+                final raf = await file.open(mode: FileMode.write);
+                await raf.truncate(0);
+                await raf.close();
+              } catch (_) {}
+              final idx = _tasks.indexWhere((t) => t.id == taskId);
+              if (idx >= 0) {
+                _tasks[idx] = _tasks[idx].copyWith(
+                  downloadedBytes: 0,
+                  etag: null,
+                  segments: [],
+                );
+                await saveImmediate();
+              }
+              _activeContexts.remove(taskId);
+              client.close(force: true);
+              _startDownloading(taskId);
+              return;
+            }
             logEvent(taskId, 'WARN', 'Multi-connection download failed: $e; falling back to single stream');
           }
         }
+      }
+
+      // Single stream fallback for multi-connection tasks:
+      // If the file was preallocated with holes, single-stream cannot safely append to existingBytes.
+      if (currentTask.connectionCount > 1 && existingBytes > 0) {
+        logEvent(taskId, 'WARN', 'Single stream fallback for multi-connection task requires fresh restart from byte 0.');
+        try {
+          final raf = await file.open(mode: FileMode.write);
+          await raf.truncate(0);
+          await raf.close();
+        } catch (_) {}
+        existingBytes = 0;
       }
 
       final request = await client.getUrl(uri);
