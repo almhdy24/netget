@@ -6,17 +6,20 @@ import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../models/download_task.dart';
 import '../../services/download_manager.dart';
+import '../../services/notification_permission_service.dart';
 
 class AddDownloadSheet extends StatefulWidget {
   final DownloadManager manager;
   final String? initialUrl;
   final void Function(DownloadTask task)? onOpenExisting;
+  final NotificationPermissionService? permissionService;
 
   const AddDownloadSheet({
     super.key,
     required this.manager,
     this.initialUrl,
     this.onOpenExisting,
+    this.permissionService,
   });
 
   static Future<void> show(
@@ -24,6 +27,7 @@ class AddDownloadSheet extends StatefulWidget {
     required DownloadManager manager,
     String? initialUrl,
     void Function(DownloadTask task)? onOpenExisting,
+    NotificationPermissionService? permissionService,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -34,6 +38,7 @@ class AddDownloadSheet extends StatefulWidget {
         manager: manager,
         initialUrl: initialUrl,
         onOpenExisting: onOpenExisting,
+        permissionService: permissionService,
       ),
     );
   }
@@ -180,6 +185,11 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
     });
 
     try {
+      if (startNow && widget.permissionService != null) {
+        await widget.permissionService!.maybePromptForDownload(context);
+      }
+      if (!mounted) return;
+
       final customName = _nameController.text.trim();
       final subFolder = _subFolderController.text.trim();
 

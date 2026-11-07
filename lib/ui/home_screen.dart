@@ -13,6 +13,7 @@ import 'widgets/add_download_sheet.dart';
 import 'widgets/download_card.dart';
 import 'widgets/empty_state_view.dart';
 import 'widgets/stats_summary_card.dart';
+import '../services/notification_permission_service.dart';
 
 enum _FilterTab { all, active, completed, queued, paused, failed }
 
@@ -21,11 +22,13 @@ enum _SortOption { dateDesc, dateAsc, nameAsc, sizeDesc, speedDesc }
 class HomeScreen extends StatefulWidget {
   final DownloadManager manager;
   final ValueNotifier<ThemeMode> themeModeNotifier;
+  final NotificationPermissionService? permissionService;
 
   const HomeScreen({
     super.key,
     required this.manager,
     required this.themeModeNotifier,
+    this.permissionService,
   });
 
   @override
@@ -48,8 +51,23 @@ class _HomeScreenState extends State<HomeScreen> {
   // Selected task ID for wide-screen detail pane
   String? _selectedTaskId;
 
+  late final NotificationPermissionService _permissionService;
+
+  @override
+  void initState() {
+    super.initState();
+    _permissionService =
+        widget.permissionService ?? NotificationPermissionService();
+    _permissionService.addListener(_onPermissionChanged);
+  }
+
+  void _onPermissionChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _permissionService.removeListener(_onPermissionChanged);
     _searchController.dispose();
     _quickUrlController.dispose();
     super.dispose();
@@ -59,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
     AddDownloadSheet.show(
       context,
       manager: widget.manager,
+      permissionService: _permissionService,
       initialUrl: initialUrl,
       onOpenExisting: (task) {
         setState(() {
@@ -384,6 +403,61 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildNotificationBanner(BuildContext context) {
+    if (!_permissionService.shouldShowHomeBanner) {
+      return const SizedBox.shrink();
+    }
+    final theme = Theme.of(context);
+    final isArabic = Directionality.of(context) == TextDirection.rtl;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.notifications_off_outlined,
+            size: 20,
+            color: theme.colorScheme.onPrimaryContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              isArabic
+                  ? 'الإشعارات معطلة. فعّلها لمتابعة التنزيل بالخلفية.'
+                  : 'Notifications disabled. Enable to track downloads in background.',
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => _permissionService.openSettings(),
+            child: Text(
+              isArabic ? 'تفعيل' : 'Enable',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 16),
+            tooltip: isArabic ? 'إغلاق' : 'Dismiss',
+            onPressed: () => _permissionService.dismissBanner(),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Shortcuts(
@@ -665,6 +739,7 @@ class _HomeScreenState extends State<HomeScreen> {
           flex: isUltraWide ? 5 : 6,
           child: Column(
             children: [
+              _buildNotificationBanner(context),
               StatsSummaryCard(
                 manager: widget.manager,
                 isDense: _isDense,
@@ -935,6 +1010,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
+          ),
+
+          // Notification Permission Banner
+          SliverToBoxAdapter(
+            child: _buildNotificationBanner(context),
           ),
 
           // Monitor Summary & Toolbar
