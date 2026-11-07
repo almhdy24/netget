@@ -132,7 +132,16 @@ class MainActivity : FlutterActivity() {
                     try {
                         val count = call.argument<Int>("activeCount") ?: 0
                         val progressText = call.argument<String>("progressText") ?: ""
-                        downloadService?.updateDartActiveDownloads(count, progressText)
+                        val percent = call.argument<Int>("percent") ?: 0
+                        val name = call.argument<String>("name") ?: ""
+                        val totalBytes = (call.argument<Number>("totalBytes") ?: -1L).toLong()
+                        downloadService?.updateDartActiveDownloads(
+                            count = count,
+                            progressText = progressText,
+                            percent = percent,
+                            fileName = name,
+                            totalBytes = totalBytes
+                        )
                         result.success(true)
                     } catch (e: Exception) {
                         // Catches ForegroundServiceStartNotAllowedException (Android 12+ / API 31+)
@@ -143,6 +152,20 @@ class MainActivity : FlutterActivity() {
                             e.javaClass.name
                         )
                     }
+                }
+                "notifyDownloadCompleted" -> {
+                    val taskId = call.argument<String>("taskId") ?: ""
+                    val fileName = call.argument<String>("fileName") ?: ""
+                    val savePath = call.argument<String>("savePath") ?: ""
+                    downloadService?.notificationHelper?.notifyCompleted(taskId.hashCode(), fileName, savePath)
+                    result.success(true)
+                }
+                "notifyDownloadFailed" -> {
+                    val taskId = call.argument<String>("taskId") ?: ""
+                    val fileName = call.argument<String>("fileName") ?: ""
+                    val errorMessage = call.argument<String>("errorMessage") ?: "Download failed"
+                    downloadService?.notificationHelper?.notifyFailed(taskId.hashCode(), taskId, fileName, errorMessage)
+                    result.success(true)
                 }
                 "playSound" -> {
                     val sound = call.argument<String>("sound") ?: ""

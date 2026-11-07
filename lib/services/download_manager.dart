@@ -133,9 +133,41 @@ class DownloadManager extends ChangeNotifier {
   void _syncActiveDownloadsToNative({bool force = false}) {
     if (!Platform.isAndroid && !isAndroidForTesting) return;
 
-    final currentDownloadingCount =
-        _tasks.where((t) => t.status == DownloadStatus.downloading).length;
+    final downloadingTasks =
+        _tasks.where((t) => t.status == DownloadStatus.downloading).toList();
+    final currentDownloadingCount = downloadingTasks.length;
     final now = clock();
+
+    int overallPercent = 0;
+    String singleFileName = '';
+    int totalBytes = -1;
+
+    if (currentDownloadingCount == 1) {
+      final t = downloadingTasks.first;
+      singleFileName = t.fileName;
+      totalBytes = t.totalBytes;
+      overallPercent =
+          ((t.progress ?? 0.0) * 100).round().clamp(0, 100);
+    } else if (currentDownloadingCount > 1) {
+      int sumDownloaded = 0;
+      int sumTotal = 0;
+      bool allTotalsKnown = true;
+      for (final t in downloadingTasks) {
+        sumDownloaded += t.downloadedBytes;
+        if (t.totalBytes > 0) {
+          sumTotal += t.totalBytes;
+        } else {
+          allTotalsKnown = false;
+        }
+      }
+      totalBytes = allTotalsKnown ? sumTotal : -1;
+      if (allTotalsKnown && sumTotal > 0) {
+        overallPercent =
+            ((sumDownloaded / sumTotal) * 100).round().clamp(0, 100);
+      } else {
+        overallPercent = 0;
+      }
+    }
 
     // 0 <-> N transitions or active count changes are reported immediately
     if (force || currentDownloadingCount != _reportedActiveCount) {
@@ -147,16 +179,23 @@ class DownloadManager extends ChangeNotifier {
       _invokeNative('updateActiveDownloads', {
         'activeCount': currentDownloadingCount,
         'progressText': speedText,
+        'percent': overallPercent,
+        'name': singleFileName,
+        'totalBytes': totalBytes,
       });
     } else if (currentDownloadingCount > 0) {
-      // Progress text is throttled to at most once per second
-      final elapsedMs = now.difference(_lastNativeProgressReport).inMilliseconds;
+      // Progress updates throttled to at most once per second
+      final elapsedMs =
+          now.difference(_lastNativeProgressReport).inMilliseconds;
       if (elapsedMs >= 1000) {
         _lastNativeProgressReport = now;
         final speedText = NetGetUtils.formatSpeed(currentTotalSpeed);
         _invokeNative('updateActiveDownloads', {
           'activeCount': currentDownloadingCount,
           'progressText': speedText,
+          'percent': overallPercent,
+          'name': singleFileName,
+          'totalBytes': totalBytes,
         });
       }
     }
@@ -1167,6 +1206,11 @@ class DownloadManager extends ChangeNotifier {
               logEvent(taskId, 'INFO', 'Download completed successfully!');
               await saveImmediate();
               notifyListeners();
+              _invokeNative('notifyDownloadCompleted', {
+                'taskId': taskId,
+                'fileName': _tasks[idx].fileName,
+                'savePath': _tasks[idx].savePath,
+              });
             }
             _activeContexts.remove(taskId);
             client.close(force: true);
@@ -1447,6 +1491,11 @@ class DownloadManager extends ChangeNotifier {
               logEvent(taskId, 'ERROR', 'Error ($failureCode): $error');
               await saveImmediate();
               notifyListeners();
+              _invokeNative('notifyDownloadFailed', {
+                'taskId': taskId,
+                'fileName': _tasks[idx].fileName,
+                'errorMessage': cleanMsg,
+              });
               if (failureCode == DownloadFailureCode.noConnection) {
                 _scheduleNetworkRetry(taskId);
               }
@@ -1478,6 +1527,11 @@ class DownloadManager extends ChangeNotifier {
               logEvent(taskId, 'INFO', 'Download completed successfully!');
               await saveImmediate();
               notifyListeners();
+              _invokeNative('notifyDownloadCompleted', {
+                'taskId': taskId,
+                'fileName': _tasks[idx].fileName,
+                'savePath': _tasks[idx].savePath,
+              });
             }
           }
           _processQueue();
@@ -1504,6 +1558,11 @@ class DownloadManager extends ChangeNotifier {
           logEvent(taskId, 'ERROR', 'Failure ($failureCode): $e');
           await saveImmediate();
           notifyListeners();
+          _invokeNative('notifyDownloadFailed', {
+            'taskId': taskId,
+            'fileName': _tasks[idx].fileName,
+            'errorMessage': cleanMsg,
+          });
           if (failureCode == DownloadFailureCode.noConnection) {
             _scheduleNetworkRetry(taskId);
           }

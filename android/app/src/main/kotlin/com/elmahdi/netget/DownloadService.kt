@@ -73,10 +73,22 @@ class DownloadService : Service() {
     // Active transfers reported from Dart DownloadManager
     private var dartActiveCount: Int = 0
     private var dartProgressText: String = ""
+    private var dartPercent: Int = 0
+    private var dartFileName: String = ""
+    private var dartTotalBytes: Long = -1L
 
-    fun updateDartActiveDownloads(count: Int, progressText: String) {
+    fun updateDartActiveDownloads(
+        count: Int,
+        progressText: String,
+        percent: Int = 0,
+        fileName: String = "",
+        totalBytes: Long = -1L
+    ) {
         dartActiveCount = count
         dartProgressText = progressText
+        dartPercent = percent
+        dartFileName = fileName
+        dartTotalBytes = totalBytes
         updateForegroundState()
     }
 
@@ -189,9 +201,12 @@ class DownloadService : Service() {
                 formatSpeed(totalSpeed)
             }
             val summary = notificationHelper.buildSummaryNotification(
-                effectiveCount,
-                progressText,
-                0
+                activeCount = effectiveCount,
+                totalSpeedStr = progressText,
+                completedCount = 0,
+                percent = dartPercent,
+                fileName = dartFileName,
+                totalBytes = dartTotalBytes
             )
             if (!isForeground) {
                 // Foreground service type dataSync (verify in docs)
