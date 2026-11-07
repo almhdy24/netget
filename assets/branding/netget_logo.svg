@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 140" width="560" height="140">
+  <defs>
+    <!-- Deep Navy Background Gradient -->
+    <linearGradient id="fullBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A1E42"/>
+      <stop offset="40%" stop-color="#07152F"/>
+      <stop offset="100%" stop-color="#030B1D"/>
+    </linearGradient>
+
+    <!-- Electric Blue to Cyan Motion Gradient -->
+    <linearGradient id="fullCyanBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="100%" stop-color="#176BFF"/>
+    </linearGradient>
+
+    <!-- Bright Green Download Arrow Gradient -->
+    <linearGradient id="fullGreenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5CFA80"/>
+      <stop offset="100%" stop-color="#39E75F"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="fullArrowGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#39E75F" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Deep Navy Card Background -->
+  <rect width="560" height="140" rx="24" fill="url(#fullBgGrad)"/>
+
+  <!-- Icon Mark on Left (scaled from 512 to 100x100, placed at x=20, y=20) -->
+  <g transform="translate(20, 20) scale(0.1953125)">
+    <!-- Container -->
+    <rect width="512" height="512" rx="112" fill="url(#fullBgGrad)"/>
+    <rect width="508" height="508" x="2" y="2" rx="110" fill="none" stroke="#176BFF" stroke-width="3" stroke-opacity="0.3"/>
+
+    <!-- Motion Streams -->
+    <g stroke-linecap="round">
+      <path d="M 72,160 L 118,160" stroke="#176BFF" stroke-width="10" opacity="0.6"/>
+      <path d="M 54,188 L 126,188" stroke="url(#fullCyanBlue)" stroke-width="10" opacity="0.9"/>
+      <path d="M 78,216 L 120,216" stroke="#00D4FF" stroke-width="10"/>
+
+      <path d="M 392,296 L 434,296" stroke="#00D4FF" stroke-width="10"/>
+      <path d="M 386,324 L 458,324" stroke="url(#fullCyanBlue)" stroke-width="10" opacity="0.9"/>
+      <path d="M 394,352 L 440,352" stroke="#176BFF" stroke-width="10" opacity="0.6"/>
+
+      <path d="M 194,408 L 256,432 L 318,408" fill="none" stroke="url(#fullCyanBlue)" stroke-width="10" stroke-linejoin="round"/>
+    </g>
+
+    <!-- White N -->
+    <g>
+      <rect x="136" y="122" width="48" height="268" rx="10" fill="#FFFFFF"/>
+      <rect x="328" y="122" width="48" height="268" rx="10" fill="#FFFFFF"/>
+      <path d="M 184,142 L 234,212 L 184,236 Z" fill="#FFFFFF"/>
+      <path d="M 328,370 L 278,300 L 328,276 Z" fill="#FFFFFF"/>
+    </g>
+
+    <!-- Green Arrow -->
+    <g filter="url(#fullArrowGlow)">
+      <path d="M 234,108 C 234,101.5 239.5,96 246,96 L 266,96 C 272.5,96 278,101.5 278,108 L 278,278 L 328,278 L 256,368 L 184,278 L 234,278 Z" fill="#030B1D" stroke="#030B1D" stroke-width="18" stroke-linejoin="round"/>
+      <path d="M 234,108 C 234,101.5 239.5,96 246,96 L 266,96 C 272.5,96 278,101.5 278,108 L 278,278 L 328,278 L 256,368 L 184,278 L 234,278 Z" fill="url(#fullGreenGrad)" stroke="#39E75F" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+  </g>
+
+  <!-- Wordmark and Subtitle on Right -->
+  <text x="140" y="80" font-family="DejaVu Sans, Roboto, 'SF Pro Display', -apple-system, sans-serif" font-weight="800" font-size="58" letter-spacing="-1px">
+    <tspan fill="#FFFFFF">Net</tspan><tspan fill="url(#fullGreenGrad)">Get</tspan>
+  </text>
+  <text x="142" y="108" font-family="DejaVu Sans, Roboto, 'SF Pro Display', -apple-system, sans-serif" font-weight="600" font-size="14" letter-spacing="4px" fill="#00D4FF" opacity="0.9">DOWNLOAD MANAGER</text>
+</svg>

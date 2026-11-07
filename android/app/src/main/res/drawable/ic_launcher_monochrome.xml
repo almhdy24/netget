@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Distinctive White N Silhouette -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M39,38 C39,37.4 39.4,37 40,37 L44,37 C44.6,37 45,37.4 45,38 L45,70 C45,70.6 44.6,71 44,71 L40,71 C39.4,71 39,70.6 39,70 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M63,38 C63,37.4 63.4,37 64,37 L68,37 C68.6,37 69,37.4 69,38 L69,70 C69,70.6 68.6,71 68,71 L64,71 C63.4,71 63,70.6 63,70 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,39.75 L51.25,48.5 L45,51.5 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M63,68.25 L56.75,59.5 L63,56.5 Z"/>
+
+    <!-- Cutout Separation -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#00000000"
+        android:strokeWidth="1.5"
+        android:pathData="M51.25,35.5 L56.75,35.5 L56.75,56.75 L63,56.75 L54,68 L45,56.75 L51.25,56.75 Z"/>
+
+    <!-- Arrow Silhouette -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M51.25,35.5 L56.75,35.5 L56.75,56.75 L63,56.75 L54,68 L45,56.75 L51.25,56.75 Z"/>
+
+    <!-- Ground Tray -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M46.25,73 L54,76 L61.75,73"/>
+</vector>

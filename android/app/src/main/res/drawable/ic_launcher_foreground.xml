@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Electric Blue / Cyan Motion Streams -->
+    <!-- Left upper stream packets -->
+    <path
+        android:strokeColor="#176BFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6"
+        android:pathData="M31,42 L36.75,42"/>
+    <path
+        android:strokeColor="#00D4FF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.9"
+        android:pathData="M28.75,45.5 L37.75,45.5"/>
+    <path
+        android:strokeColor="#00D4FF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M31.75,49 L37,49"/>
+
+    <!-- Right lower stream packets -->
+    <path
+        android:strokeColor="#00D4FF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M71,59 L76.25,59"/>
+    <path
+        android:strokeColor="#00D4FF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.9"
+        android:pathData="M70.25,62.5 L79.25,62.5"/>
+    <path
+        android:strokeColor="#176BFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6"
+        android:pathData="M71.25,66 L77,66"/>
+
+    <!-- Motion Chevron / Ground Tray -->
+    <path
+        android:strokeColor="#00D4FF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M46.25,73 L54,76 L61.75,73"/>
+
+    <!-- Distinctive White N Symbol -->
+    <!-- Left Stem -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M39,38 C39,37.4 39.4,37 40,37 L44,37 C44.6,37 45,37.4 45,38 L45,70 C45,70.6 44.6,71 44,71 L40,71 C39.4,71 39,70.6 39,70 Z"/>
+    <!-- Right Stem -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M63,38 C63,37.4 63.4,37 64,37 L68,37 C68.6,37 69,37.4 69,38 L69,70 C69,70.6 68.6,71 68,71 L64,71 C63.4,71 63,70.6 63,70 Z"/>
+    <!-- Diagonal Segments -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,39.75 L51.25,48.5 L45,51.5 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M63,68.25 L56.75,59.5 L63,56.5 Z"/>
+
+    <!-- Arrow Backing Cutout (negative space separation) -->
+    <path
+        android:fillColor="#07152F"
+        android:strokeColor="#07152F"
+        android:strokeWidth="2.0"
+        android:strokeLineJoin="round"
+        android:pathData="M51.25,35.5 L56.75,35.5 L56.75,56.75 L63,56.75 L54,68 L45,56.75 L51.25,56.75 Z"/>
+
+    <!-- Bright Green Download Arrow -->
+    <path
+        android:pathData="M51.25,35.5 L56.75,35.5 L56.75,56.75 L63,56.75 L54,68 L45,56.75 L51.25,56.75 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="35.5"
+                android:endX="54"
+                android:endY="68"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#5CFA80"/>
+                <item android:offset="1.0" android:color="#39E75F"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

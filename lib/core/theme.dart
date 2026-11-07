@@ -1,33 +1,43 @@
 import 'package:flutter/material.dart';
 
 class NetGetTheme {
-  // Brand Colors
-  static const Color primaryBlue = Color(
-    0xFF1565C0,
-  ); // Classic IDM-inspired blue
-  static const Color accentCyan = Color(0xFF00ACC1);
-  static const Color successGreen = Color(0xFF2E7D32);
+  // Official NetGet Brand Identity Colors
+  static const Color brandNavy = Color(0xFF07152F);
+  static const Color brandDeepNavy = Color(0xFF030B1D);
+  static const Color brandCyan = Color(0xFF00D4FF);
+  static const Color brandBlue = Color(0xFF176BFF);
+  static const Color brandGreen = Color(0xFF39E75F);
+  static const Color brandWhite = Color(0xFFFFFFFF);
+
+  // Functional / Status Colors
+  static const Color primaryBlue = brandBlue;
+  static const Color accentCyan = brandCyan;
+  static const Color successGreen = brandGreen;
   static const Color warningAmber = Color(0xFFF57C00);
   static const Color errorRed = Color(0xFFD32F2F);
 
   static ThemeData lightTheme() {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: primaryBlue,
+      seedColor: brandBlue,
       brightness: Brightness.light,
-      primary: primaryBlue,
-      secondary: accentCyan,
-      surface: const Color(0xFFF8F9FA),
+      primary: brandBlue,
+      onPrimary: brandWhite,
+      secondary: brandCyan,
+      onSecondary: brandNavy,
+      tertiary: brandGreen,
+      surface: const Color(0xFFFFFFFF),
+      onSurface: brandNavy,
     );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: const Color(0xFFF5F6F8),
+      scaffoldBackgroundColor: const Color(0xFFF4F6FA),
       appBarTheme: const AppBarTheme(
         centerTitle: false,
         elevation: 0,
         backgroundColor: Colors.white,
-        foregroundColor: Color(0xFF1A1C1E),
+        foregroundColor: brandNavy,
         scrolledUnderElevation: 1,
       ),
       cardTheme: CardThemeData(
@@ -35,9 +45,18 @@ class NetGetTheme {
         color: Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFFE2E4E8), width: 1),
+          side: const BorderSide(color: Color(0xFFE2E6EF), width: 1),
         ),
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: brandBlue,
+        foregroundColor: brandWhite,
+        elevation: 2,
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: brandBlue,
+        linearTrackColor: Color(0xFFE2E6EF),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -48,15 +67,15 @@ class NetGetTheme {
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFCFD4DC)),
+          borderSide: const BorderSide(color: Color(0xFFCFD6E4)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFCFD4DC)),
+          borderSide: const BorderSide(color: Color(0xFFCFD6E4)),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: primaryBlue, width: 2),
+        focusedBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(10)),
+          borderSide: BorderSide(color: brandBlue, width: 2),
         ),
       ),
       chipTheme: ChipThemeData(
@@ -67,51 +86,64 @@ class NetGetTheme {
 
   static ThemeData darkTheme() {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF90CAF9),
+      seedColor: brandCyan,
       brightness: Brightness.dark,
-      primary: const Color(0xFF90CAF9),
-      secondary: const Color(0xFF80DEEA),
-      surface: const Color(0xFF131518),
+      primary: brandCyan,
+      onPrimary: brandDeepNavy,
+      secondary: brandBlue,
+      onSecondary: brandWhite,
+      tertiary: brandGreen,
+      surface: const Color(0xFF07152F),
+      onSurface: const Color(0xFFE3E9F5),
     );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: const Color(0xFF0F1012),
+      scaffoldBackgroundColor: brandDeepNavy,
       appBarTheme: const AppBarTheme(
         centerTitle: false,
         elevation: 0,
-        backgroundColor: Color(0xFF17191D),
-        foregroundColor: Color(0xFFE3E5E8),
+        backgroundColor: brandNavy,
+        foregroundColor: Color(0xFFE3E9F5),
         scrolledUnderElevation: 1,
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: const Color(0xFF1B1E22),
+        color: const Color(0xFF0C1B3B),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFF2C3138), width: 1),
+          side: const BorderSide(color: Color(0xFF162E5C), width: 1),
         ),
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: brandBlue,
+        foregroundColor: brandWhite,
+        elevation: 2,
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: brandCyan,
+        linearTrackColor: Color(0xFF152A50),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFF1B1E22),
+        fillColor: const Color(0xFF0C1B3B),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF2C3138)),
+          borderSide: const BorderSide(color: Color(0xFF162E5C)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF2C3138)),
+          borderSide: const BorderSide(color: Color(0xFF162E5C)),
         ),
         focusedBorder: const OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(10)),
-          borderSide: BorderSide(color: Color(0xFF90CAF9), width: 2),
+          borderSide: BorderSide(color: brandCyan, width: 2),
         ),
       ),
       chipTheme: ChipThemeData(

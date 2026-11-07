@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 90" width="340" height="90">
+  <defs>
+    <linearGradient id="wordmarkGreen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5CFA80"/>
+      <stop offset="100%" stop-color="#39E75F"/>
+    </linearGradient>
+  </defs>
+  <text x="10" y="68" font-family="DejaVu Sans, Roboto, 'SF Pro Display', -apple-system, 'Segoe UI', sans-serif" font-weight="800" font-size="64" letter-spacing="-1px">
+    <tspan fill="#FFFFFF">Net</tspan><tspan fill="url(#wordmarkGreen)">Get</tspan>
+  </text>
+</svg>

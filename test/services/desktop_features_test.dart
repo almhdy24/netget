@@ -92,5 +92,27 @@ void main() {
       expect(manager.speedMode, SpeedMode.high);
       expect(manager.speedMode.bytesPerSec, 5 * 1024 * 1024);
     });
+
+    test(
+      'queue scheduler stores and retrieves automated start/stop schedule',
+      () {
+        const schedule = QueueSchedule(
+          queueName: 'Main',
+          startHour: 2,
+          startMinute: 30,
+          stopHour: 6,
+          stopMinute: 0,
+          isEnabled: true,
+        );
+
+        manager.setQueueSchedule(schedule);
+
+        final retrieved = manager.getQueueSchedule('Main');
+        expect(retrieved, isNotNull);
+        expect(retrieved!.formattedStartTime, '02:30');
+        expect(retrieved.formattedStopTime, '06:00');
+        expect(retrieved.isEnabled, isTrue);
+      },
+    );
   });
 }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_background">#07152F</color>
+    <color name="brand_navy">#07152F</color>
+    <color name="brand_deep_navy">#030B1D</color>
+    <color name="brand_cyan">#00D4FF</color>
+    <color name="brand_blue">#176BFF</color>
+    <color name="brand_green">#39E75F</color>
+    <color name="brand_white">#FFFFFF</color>
+</resources>

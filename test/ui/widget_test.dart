@@ -40,6 +40,7 @@ void main() {
   ) async {
     final repository = TestDownloadRepository();
     final manager = DownloadManager(repository: repository);
+    addTearDown(manager.dispose);
     await manager.init();
 
     await tester.pumpWidget(NetGetApp(manager: manager));
@@ -91,6 +92,7 @@ void main() {
     ];
 
     final manager = DownloadManager(repository: repository);
+    addTearDown(manager.dispose);
     await manager.init();
 
     await tester.pumpWidget(NetGetApp(manager: manager));

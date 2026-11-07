@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/segment_planner.dart';
+import '../../core/theme.dart';
 
 /// Custom painter for rendering IDM-style connection segments block map.
 class SegmentMapPainter extends CustomPainter {
@@ -64,7 +65,7 @@ class SegmentMapPainter extends CustomPainter {
         );
         final fillPaint = Paint()
           ..color = isCompleted || seg.isCompleted
-              ? const Color(0xFF2E7D32)
+              ? NetGetTheme.brandGreen
               : primaryColor
           ..style = PaintingStyle.fill;
         canvas.drawRRect(

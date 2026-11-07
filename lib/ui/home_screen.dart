@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/constants.dart';
+import '../core/theme.dart';
 import '../core/utils.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
@@ -200,6 +201,156 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final id in _selectedTaskIds) {
       await widget.manager.resumeDownload(id);
     }
+  }
+
+  void _handleToolbarDelete(BuildContext context) {
+    if (_isSelectionMode) {
+      _bulkDelete();
+    } else {
+      _confirmClearCompleted(context);
+    }
+  }
+
+  Future<void> _showQueueSchedulerDialog(BuildContext context) async {
+    String selectedQueue = widget.manager.namedQueues.first;
+    var schedule = widget.manager.getQueueSchedule(selectedQueue);
+    int startHour = schedule?.startHour ?? 2;
+    int startMinute = schedule?.startMinute ?? 0;
+    int stopHour = schedule?.stopHour ?? 6;
+    int stopMinute = schedule?.stopMinute ?? 0;
+    bool isEnabled = schedule?.isEnabled ?? false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.schedule_rounded, size: 20),
+              SizedBox(width: 8),
+              Text('Queue Scheduler'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: selectedQueue,
+                decoration: const InputDecoration(labelText: 'Named Queue'),
+                items: widget.manager.namedQueues
+                    .map((q) => DropdownMenuItem(value: q, child: Text(q)))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() {
+                      selectedQueue = val;
+                      final s = widget.manager.getQueueSchedule(val);
+                      startHour = s?.startHour ?? 2;
+                      startMinute = s?.startMinute ?? 0;
+                      stopHour = s?.stopHour ?? 6;
+                      stopMinute = s?.stopMinute ?? 0;
+                      isEnabled = s?.isEnabled ?? false;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'Enable Auto Schedule',
+                  style: TextStyle(fontSize: 13),
+                ),
+                value: isEnabled,
+                onChanged: (val) => setDialogState(() => isEnabled = val),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.play_arrow_outlined,
+                  color: Colors.green,
+                ),
+                title: const Text('Start Time', style: TextStyle(fontSize: 13)),
+                trailing: TextButton(
+                  child: Text(
+                    '${startHour.toString().padLeft(2, '0')}:${startMinute.toString().padLeft(2, '0')}',
+                  ),
+                  onPressed: () async {
+                    final t = await showTimePicker(
+                      context: ctx,
+                      initialTime: TimeOfDay(
+                        hour: startHour,
+                        minute: startMinute,
+                      ),
+                    );
+                    if (t != null) {
+                      setDialogState(() {
+                        startHour = t.hour;
+                        startMinute = t.minute;
+                      });
+                    }
+                  },
+                ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.stop_outlined, color: Colors.red),
+                title: const Text('Stop Time', style: TextStyle(fontSize: 13)),
+                trailing: TextButton(
+                  child: Text(
+                    '${stopHour.toString().padLeft(2, '0')}:${stopMinute.toString().padLeft(2, '0')}',
+                  ),
+                  onPressed: () async {
+                    final t = await showTimePicker(
+                      context: ctx,
+                      initialTime: TimeOfDay(
+                        hour: stopHour,
+                        minute: stopMinute,
+                      ),
+                    );
+                    if (t != null) {
+                      setDialogState(() {
+                        stopHour = t.hour;
+                        stopMinute = t.minute;
+                      });
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                widget.manager.setQueueSchedule(
+                  QueueSchedule(
+                    queueName: selectedQueue,
+                    startHour: startHour,
+                    startMinute: startMinute,
+                    stopHour: stopHour,
+                    stopMinute: stopMinute,
+                    isEnabled: isEnabled,
+                  ),
+                );
+                Navigator.of(dialogCtx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Schedule updated for "$selectedQueue"'),
+                  ),
+                );
+              },
+              child: const Text('Save Schedule'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _bulkDelete() async {
@@ -416,11 +567,23 @@ class _HomeScreenState extends State<HomeScreen> {
           onSelected: (value) {
             if (value == 'clear_completed') {
               _confirmClearCompleted(context);
+            } else if (value == 'scheduler') {
+              _showQueueSchedulerDialog(context);
             } else if (value == 'about') {
               _showAboutDialog(context);
             }
           },
           itemBuilder: (ctx) => [
+            const PopupMenuItem(
+              value: 'scheduler',
+              child: Row(
+                children: [
+                  Icon(Icons.schedule_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Text('Queue Scheduler'),
+                ],
+              ),
+            ),
             PopupMenuItem(
               value: 'clear_completed',
               enabled: widget.manager.completedTasks.isNotEmpty,
@@ -503,6 +666,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 isDense: _isDense,
                 onToggleDense: () => setState(() => _isDense = !_isDense),
                 onAddLink: () => _showAddSheet(),
+                onDeleteSelected: () => _handleToolbarDelete(context),
               ),
 
               // Filter Tabs & Search / Sort Row
@@ -769,6 +933,7 @@ class _HomeScreenState extends State<HomeScreen> {
               isDense: _isDense,
               onToggleDense: () => setState(() => _isDense = !_isDense),
               onAddLink: () => _showAddSheet(),
+              onDeleteSelected: () => _handleToolbarDelete(context),
             ),
           ),
 
@@ -964,16 +1129,24 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       applicationName: NetGetConstants.appName,
       applicationVersion: '2.0.0',
-      applicationIcon: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Icon(
-          Icons.download_rounded,
-          color: Colors.white,
-          size: 28,
+      applicationIcon: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.asset(
+          'assets/branding/netget_store_icon_512.png',
+          width: 44,
+          height: 44,
+          errorBuilder: (_, _, _) => Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: NetGetTheme.brandNavy,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.download_rounded,
+              color: NetGetTheme.brandGreen,
+              size: 28,
+            ),
+          ),
         ),
       ),
       children: const [

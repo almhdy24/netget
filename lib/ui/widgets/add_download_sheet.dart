@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants.dart';
+import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../models/download_task.dart';
 import '../../services/download_manager.dart';
@@ -285,7 +286,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1B1E22) : Colors.white,
+        color: isDark ? NetGetTheme.brandNavy : Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
       ),
       padding: EdgeInsets.fromLTRB(20, 14, 20, 20 + bottomInset),
@@ -681,8 +682,8 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
 
   Widget _buildResumeChip(BuildContext context, bool isResumable) {
     final color = isResumable
-        ? const Color(0xFF2E7D32)
-        : const Color(0xFFF57C00);
+        ? NetGetTheme.brandGreen
+        : NetGetTheme.warningAmber;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(

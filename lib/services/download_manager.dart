@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import '../core/constants.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
@@ -39,6 +40,30 @@ class UrlAnalysisResult {
   });
 }
 
+/// Configuration schedule for automated queue start/stop execution.
+class QueueSchedule {
+  final String queueName;
+  final int startHour;
+  final int startMinute;
+  final int stopHour;
+  final int stopMinute;
+  final bool isEnabled;
+
+  const QueueSchedule({
+    required this.queueName,
+    required this.startHour,
+    required this.startMinute,
+    required this.stopHour,
+    required this.stopMinute,
+    this.isEnabled = true,
+  });
+
+  String get formattedStartTime =>
+      '${startHour.toString().padLeft(2, '0')}:${startMinute.toString().padLeft(2, '0')}';
+  String get formattedStopTime =>
+      '${stopHour.toString().padLeft(2, '0')}:${stopMinute.toString().padLeft(2, '0')}';
+}
+
 /// Stream event for live details screen (2-4 Hz).
 class TaskDetailsUpdate {
   final DownloadTask task;
@@ -63,10 +88,20 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, _ActiveDownloadContext> _activeContexts = {};
   bool _isInitialized = false;
 
+  // Platform channel interface to Native Kotlin foreground service
+  static const MethodChannel _platform = MethodChannel(
+    'com.elmahdi.netget/engine',
+  );
+  static const EventChannel _eventChannel = EventChannel(
+    'com.elmahdi.netget/events',
+  );
+
   // In-memory desktop enhancements: ring buffers & state
   final Map<String, List<TaskLogEvent>> _taskLogs = {};
   final Map<String, List<double>> _taskSpeedSamples = {};
   final Map<String, int> _taskElapsedSeconds = {};
+  final Map<String, QueueSchedule> _queueSchedules = {};
+  Timer? _schedulerTimer;
   SpeedMode _speedMode = SpeedMode.unlimited;
   final List<String> _namedQueues = [NetGetConstants.defaultQueueName];
   final Map<String, bool> _activeQueues = {
@@ -121,7 +156,19 @@ class DownloadManager extends ChangeNotifier {
   /// Changes the global speed mode
   void setSpeedMode(SpeedMode mode) {
     _speedMode = mode;
+    _invokeNative('setSpeedLimit', {'bytesPerSec': mode.bytesPerSec});
     notifyListeners();
+  }
+
+  Future<void> _invokeNative(
+    String method, [
+    Map<String, dynamic>? args,
+  ]) async {
+    if (Platform.isAndroid) {
+      try {
+        await _platform.invokeMethod(method, args);
+      } catch (_) {}
+    }
   }
 
   /// Appends an event to the task's in-memory ring buffer (up to 200 events).
@@ -161,7 +208,33 @@ class DownloadManager extends ChangeNotifier {
     if (_isInitialized && !forceReload) return;
     _tasks = await _repository.loadTasks();
     _isInitialized = true;
+    _startSchedulerTimer();
+    _initNativeBridge();
     notifyListeners();
+  }
+
+  void _initNativeBridge() {
+    if (Platform.isAndroid) {
+      try {
+        _eventChannel.receiveBroadcastStream().listen((dynamic event) {
+          if (event is Map) {
+            final taskId = event['taskId'] as String?;
+            final downloaded = (event['downloadedBytes'] as num?)?.toInt();
+            final speed = (event['speedBytesPerSec'] as num?)?.toDouble();
+            if (taskId != null) {
+              final idx = _tasks.indexWhere((t) => t.id == taskId);
+              if (idx >= 0) {
+                _tasks[idx] = _tasks[idx].copyWith(
+                  downloadedBytes: downloaded ?? _tasks[idx].downloadedBytes,
+                  speedBytesPerSec: speed ?? _tasks[idx].speedBytesPerSec,
+                );
+                notifyListeners();
+              }
+            }
+          }
+        }, onError: (_) {});
+      } catch (_) {}
+    }
   }
 
   /// Performs quick link analysis (HEAD / Range: 0-0) without starting download.
@@ -336,6 +409,37 @@ class DownloadManager extends ChangeNotifier {
       throw Exception(
         'Size mismatch: Existing file is ${NetGetUtils.formatBytes(current.totalBytes)}, '
         'but new link is ${NetGetUtils.formatBytes(analysis.totalBytes)}.',
+      );
+    }
+
+    // Strict ETag check if provided by both
+    if (current.etag != null &&
+        analysis.etag != null &&
+        current.etag!.isNotEmpty &&
+        analysis.etag!.isNotEmpty &&
+        current.etag != analysis.etag) {
+      throw Exception(
+        'ETag mismatch: Existing file ETag is "${current.etag}", but new link returned "${analysis.etag}". '
+        'The remote file has changed and cannot be safely resumed.',
+      );
+    }
+
+    // Strict Last-Modified check if provided by both
+    if (current.lastModified != null &&
+        analysis.lastModified != null &&
+        current.lastModified!.isNotEmpty &&
+        analysis.lastModified!.isNotEmpty &&
+        current.lastModified != analysis.lastModified) {
+      throw Exception(
+        'Last-Modified mismatch: Existing file timestamp is "${current.lastModified}", '
+        'but new link returned "${analysis.lastModified}".',
+      );
+    }
+
+    // Verify resume support
+    if (current.resumable && !analysis.resumable) {
+      throw Exception(
+        'Resume unsupported: The new link does not support HTTP Range requests for partial downloads.',
       );
     }
 
@@ -658,6 +762,49 @@ class DownloadManager extends ChangeNotifier {
       pauseDownload(t.id);
     }
     notifyListeners();
+  }
+
+  /// Sets automated start/stop schedule for a named queue.
+  void setQueueSchedule(QueueSchedule schedule) {
+    _queueSchedules[schedule.queueName] = schedule;
+    _startSchedulerTimer();
+    notifyListeners();
+  }
+
+  /// Retrieves automated schedule for a named queue.
+  QueueSchedule? getQueueSchedule(String queueName) {
+    return _queueSchedules[queueName];
+  }
+
+  /// All configured queue schedules.
+  Map<String, QueueSchedule> get queueSchedules =>
+      Map.unmodifiable(_queueSchedules);
+
+  void _startSchedulerTimer() {
+    _schedulerTimer?.cancel();
+    _schedulerTimer = null;
+    final hasActive = _queueSchedules.values.any((s) => s.isEnabled);
+    if (!hasActive) return;
+
+    _schedulerTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final now = DateTime.now();
+      for (final schedule in _queueSchedules.values) {
+        if (!schedule.isEnabled) continue;
+        if (now.hour == schedule.startHour &&
+            now.minute == schedule.startMinute) {
+          startQueue(schedule.queueName);
+        } else if (now.hour == schedule.stopHour &&
+            now.minute == schedule.stopMinute) {
+          stopQueue(schedule.queueName);
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _schedulerTimer?.cancel();
+    super.dispose();
   }
 
   /// Checks queue and starts pending downloads if under max concurrency limit.

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Deep Navy Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A1E42"/>
+      <stop offset="40%" stop-color="#07152F"/>
+      <stop offset="100%" stop-color="#030B1D"/>
+    </linearGradient>
+
+    <!-- Electric Blue to Cyan Motion Gradient -->
+    <linearGradient id="cyanBlueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="100%" stop-color="#176BFF"/>
+    </linearGradient>
+
+    <linearGradient id="blueCyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#176BFF"/>
+      <stop offset="100%" stop-color="#00D4FF"/>
+    </linearGradient>
+
+    <!-- Bright Green Download Arrow Gradient -->
+    <linearGradient id="greenArrowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5CFA80"/>
+      <stop offset="100%" stop-color="#39E75F"/>
+    </linearGradient>
+
+    <!-- Subtle Cyan/Green Glow Filter -->
+    <filter id="arrowGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#39E75F" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Deep Navy Squircle Base -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect width="508" height="508" x="2" y="2" rx="110" fill="none" stroke="#176BFF" stroke-width="2" stroke-opacity="0.25"/>
+
+  <!-- Electric Blue / Cyan Motion Elements: Multi-segment Speed Streams -->
+  <g stroke-linecap="round">
+    <!-- Left upper stream (Incoming segment packets) -->
+    <path d="M 72,160 L 118,160" stroke="#176BFF" stroke-width="8" opacity="0.6"/>
+    <path d="M 54,188 L 126,188" stroke="url(#cyanBlueGrad)" stroke-width="8" opacity="0.9"/>
+    <path d="M 78,216 L 120,216" stroke="#00D4FF" stroke-width="8"/>
+
+    <!-- Right lower stream (Multi-connection flow) -->
+    <path d="M 392,296 L 434,296" stroke="#00D4FF" stroke-width="8"/>
+    <path d="M 386,324 L 458,324" stroke="url(#blueCyanGrad)" stroke-width="8" opacity="0.9"/>
+    <path d="M 394,352 L 440,352" stroke="#176BFF" stroke-width="8" opacity="0.6"/>
+
+    <!-- Motion Chevron / Reception Tray under Arrow -->
+    <path d="M 194,408 L 256,432 L 318,408" fill="none" stroke="url(#cyanBlueGrad)" stroke-width="8" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Distinctive White N Symbol -->
+  <g>
+    <!-- Left vertical stem -->
+    <rect x="136" y="122" width="48" height="268" rx="10" fill="#FFFFFF"/>
+    <!-- Right vertical stem -->
+    <rect x="328" y="122" width="48" height="268" rx="10" fill="#FFFFFF"/>
+    <!-- Diagonal stroke with negative space cutouts for the central arrow -->
+    <!-- Top-left diagonal segment -->
+    <path d="M 184,142 L 234,212 L 184,236 Z" fill="#FFFFFF"/>
+    <!-- Bottom-right diagonal segment -->
+    <path d="M 328,370 L 278,300 L 328,276 Z" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Bright Green Download Arrow (Hero Element) -->
+  <g filter="url(#arrowGlow)">
+    <!-- Arrow Backing Cutout (ensures crisp separation from the white N) -->
+    <path d="M 234,108 C 234,101.5 239.5,96 246,96 L 266,96 C 272.5,96 278,101.5 278,108 L 278,278 L 328,278 L 256,368 L 184,278 L 234,278 Z" fill="#030B1D" stroke="#030B1D" stroke-width="16" stroke-linejoin="round"/>
+
+    <!-- The Arrow Itself -->
+    <path d="M 234,108 C 234,101.5 239.5,96 246,96 L 266,96 C 272.5,96 278,101.5 278,108 L 278,278 L 328,278 L 256,368 L 184,278 L 234,278 Z" fill="url(#greenArrowGrad)" stroke="#39E75F" stroke-width="2" stroke-linejoin="round"/>
+  </g>
+</svg>

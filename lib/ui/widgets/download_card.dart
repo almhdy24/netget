@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../models/download_status.dart';
 import '../../models/download_task.dart';
@@ -987,15 +988,16 @@ class DownloadCard extends StatelessWidget {
   Color _getStatusColor(DownloadStatus status) {
     switch (status) {
       case DownloadStatus.queued:
+        return NetGetTheme.brandBlue;
       case DownloadStatus.downloading:
-        return const Color(0xFF1565C0);
+        return NetGetTheme.brandCyan;
       case DownloadStatus.paused:
-        return const Color(0xFFF57C00);
+        return NetGetTheme.warningAmber;
       case DownloadStatus.completed:
-        return const Color(0xFF2E7D32);
+        return NetGetTheme.brandGreen;
       case DownloadStatus.failed:
       case DownloadStatus.cancelled:
-        return const Color(0xFFD32F2F);
+        return NetGetTheme.errorRed;
     }
   }
 }

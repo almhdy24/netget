@@ -49,6 +49,25 @@ class _NetGetAppState extends State<NetGetApp> {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: _themeModeNotifier,
       builder: (context, themeMode, _) {
+        final platformBrightness =
+            MediaQuery.maybePlatformBrightnessOf(context) ?? Brightness.light;
+        final isDark = themeMode == ThemeMode.dark ||
+            (themeMode == ThemeMode.system &&
+                platformBrightness == Brightness.dark);
+
+        SystemChrome.setSystemUIOverlayStyle(
+          SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+            statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarContrastEnforced: false,
+          ),
+        );
+
         return MaterialApp(
           title: '${NetGetConstants.appName} – ${NetGetConstants.appSubtitle}',
           debugShowCheckedModeBanner: false,

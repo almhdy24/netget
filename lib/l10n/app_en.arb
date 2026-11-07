@@ -1,0 +1,23 @@
+{
+  "@@locale": "en",
+  "appName": "NetGet",
+  "appSubtitle": "Download Manager",
+  "addLink": "Add Link",
+  "startNow": "Start now",
+  "downloadLater": "Download later",
+  "cancel": "Cancel",
+  "pause": "Pause",
+  "resume": "Resume",
+  "delete": "Delete",
+  "resumeAll": "Resume all",
+  "pauseAll": "Pause all",
+  "transferMonitor": "Transfer Monitor",
+  "categoryAll": "All",
+  "categoryVideo": "Video",
+  "categoryAudio": "Audio",
+  "categoryImages": "Images",
+  "categoryDocuments": "Documents",
+  "categoryArchives": "Archives",
+  "categoryApps": "Apps",
+  "categoryOther": "Other"
+}

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants.dart';
+import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../services/download_manager.dart';
 
@@ -148,7 +149,7 @@ class StatsSummaryCard extends StatelessWidget {
                   value: '$completedCount',
                   icon: Icons.check_circle_outline_rounded,
                   color: completedCount > 0
-                      ? const Color(0xFF2E7D32)
+                      ? NetGetTheme.brandGreen
                       : theme.colorScheme.onSurface.withValues(alpha: 0.4),
                 ),
                 _buildDivider(isDark),
@@ -205,6 +206,13 @@ class StatsSummaryCard extends StatelessWidget {
                   onPressed: manager.activeTasks.isNotEmpty
                       ? () => manager.pauseAll()
                       : null,
+                  theme: theme,
+                ),
+                const SizedBox(width: 6),
+                _buildToolbarButton(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete',
+                  onPressed: onDeleteSelected,
                   theme: theme,
                 ),
                 const SizedBox(width: 8),

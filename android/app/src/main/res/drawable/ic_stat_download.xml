@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Clean Download Arrow on Tray for Android Status Bar Notification -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M11,4 h2 v8 h3 L12,17 L8,12 h3 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6,18 h12 v2 H6 Z"/>
+</vector>
