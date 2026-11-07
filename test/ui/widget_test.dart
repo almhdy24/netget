@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netget/data/download_repository.dart';
+import 'package:netget/data/settings_repository.dart';
 import 'package:netget/main.dart';
 import 'package:netget/models/download_status.dart';
 import 'package:netget/models/download_task.dart';
@@ -302,5 +303,70 @@ void main() {
     // Verify "Powered by Flutter" is NEVER present
     expect(find.text('Powered by Flutter'), findsNothing);
     expect(find.textContaining('Powered by Flutter', findRichText: true), findsNothing);
+  });
+
+  testWidgets('Theme selection dialog allows switching and persists theme', (WidgetTester tester) async {
+    final repository = TestDownloadRepository();
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
+    addTearDown(manager.dispose);
+    await manager.init();
+
+    final tempDir = await Directory.systemTemp.createTemp('netget_theme_widget_test_');
+    final settingsFile = File('${tempDir.path}/settings.json');
+    addTearDown(() => tempDir.delete(recursive: true));
+
+    final settingsRepo = SettingsRepository(file: settingsFile);
+
+    await tester.pumpWidget(NetGetApp(
+      manager: manager,
+      settingsRepository: settingsRepo,
+      initialThemeMode: ThemeMode.system,
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Verify initial icon for System default
+    expect(find.byIcon(Icons.brightness_auto_rounded), findsOneWidget);
+
+    // Tap theme icon in AppBar
+    await tester.tap(find.byIcon(Icons.brightness_auto_rounded));
+    await tester.pumpAndSettle();
+
+    // Verify dialog appears
+    expect(find.text('Choose Theme'), findsOneWidget);
+    expect(find.text('System default'), findsOneWidget);
+    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('Dark'), findsOneWidget);
+
+    // Select Dark
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+
+    // Dialog dismissed and icon updated to dark_mode_rounded
+    expect(find.text('Choose Theme'), findsNothing);
+    expect(find.byIcon(Icons.dark_mode_rounded), findsOneWidget);
+
+    // Verify persisted
+    expect(await settingsRepo.loadThemeMode(), ThemeMode.dark);
+
+    // Open popup menu and check theme entry
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Theme'), findsOneWidget);
+
+    // Tap Theme from popup menu
+    await tester.tap(find.text('Theme'));
+    await tester.pumpAndSettle();
+
+    // Select Light
+    expect(find.text('Choose Theme'), findsOneWidget);
+    await tester.tap(find.text('Light'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.light_mode_rounded), findsOneWidget);
+    expect(await settingsRepo.loadThemeMode(), ThemeMode.light);
   });
 }

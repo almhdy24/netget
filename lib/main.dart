@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'core/constants.dart';
 import 'core/theme.dart';
 import 'data/download_repository.dart';
+import 'data/settings_repository.dart';
 import 'services/download_manager.dart';
 import 'ui/home_screen.dart';
 
@@ -26,25 +27,51 @@ void main() async {
   final manager = DownloadManager(repository: repository);
   await manager.init();
 
-  runApp(NetGetApp(manager: manager));
+  final settingsRepository = SettingsRepository();
+  final initialThemeMode = await settingsRepository.loadThemeMode();
+
+  runApp(NetGetApp(
+    manager: manager,
+    settingsRepository: settingsRepository,
+    initialThemeMode: initialThemeMode,
+  ));
 }
 
 class NetGetApp extends StatefulWidget {
   final DownloadManager manager;
+  final SettingsRepository? settingsRepository;
+  final ThemeMode initialThemeMode;
 
-  const NetGetApp({super.key, required this.manager});
+  const NetGetApp({
+    super.key,
+    required this.manager,
+    this.settingsRepository,
+    this.initialThemeMode = ThemeMode.system,
+  });
 
   @override
   State<NetGetApp> createState() => _NetGetAppState();
 }
 
 class _NetGetAppState extends State<NetGetApp> {
-  final ValueNotifier<ThemeMode> _themeModeNotifier = ValueNotifier<ThemeMode>(
-    ThemeMode.system,
-  );
+  late final ValueNotifier<ThemeMode> _themeModeNotifier;
+  late final SettingsRepository _settingsRepository;
+
+  @override
+  void initState() {
+    super.initState();
+    _settingsRepository = widget.settingsRepository ?? SettingsRepository();
+    _themeModeNotifier = ValueNotifier<ThemeMode>(widget.initialThemeMode);
+    _themeModeNotifier.addListener(_onThemeChanged);
+  }
+
+  void _onThemeChanged() {
+    _settingsRepository.saveThemeMode(_themeModeNotifier.value);
+  }
 
   @override
   void dispose() {
+    _themeModeNotifier.removeListener(_onThemeChanged);
     _themeModeNotifier.dispose();
     super.dispose();
   }

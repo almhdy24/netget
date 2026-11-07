@@ -679,19 +679,31 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       actions: [
-        IconButton(
-          icon: Icon(
-            widget.themeModeNotifier.value == ThemeMode.dark
-                ? Icons.light_mode_outlined
-                : Icons.dark_mode_outlined,
-            size: 20,
-          ),
-          tooltip: 'Toggle Theme',
-          onPressed: () {
-            widget.themeModeNotifier.value =
-                widget.themeModeNotifier.value == ThemeMode.dark
-                ? ThemeMode.light
-                : ThemeMode.dark;
+        ValueListenableBuilder<ThemeMode>(
+          valueListenable: widget.themeModeNotifier,
+          builder: (context, themeMode, _) {
+            final IconData icon;
+            final String tooltip;
+            switch (themeMode) {
+              case ThemeMode.light:
+                icon = Icons.light_mode_rounded;
+                tooltip = 'Theme: Light';
+                break;
+              case ThemeMode.dark:
+                icon = Icons.dark_mode_rounded;
+                tooltip = 'Theme: Dark';
+                break;
+              case ThemeMode.system:
+                icon = Icons.brightness_auto_rounded;
+                tooltip = 'Theme: System default';
+                break;
+            }
+
+            return IconButton(
+              icon: Icon(icon, size: 20),
+              tooltip: tooltip,
+              onPressed: () => _showThemeSelectionDialog(context),
+            );
           },
         ),
         PopupMenuButton<String>(
@@ -701,6 +713,8 @@ class _HomeScreenState extends State<HomeScreen> {
               _confirmClearCompleted(context);
             } else if (value == 'scheduler') {
               _showQueueSchedulerDialog(context);
+            } else if (value == 'theme') {
+              _showThemeSelectionDialog(context);
             } else if (value == 'about') {
               _showAboutDialog(context);
             }
@@ -724,6 +738,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icon(Icons.cleaning_services_outlined, size: 18),
                   SizedBox(width: 8),
                   Text('Clear Completed'),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: 'theme',
+              child: Row(
+                children: [
+                  const Icon(Icons.palette_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  const Text('Theme'),
+                  const Spacer(),
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: widget.themeModeNotifier,
+                    builder: (_, mode, _) {
+                      final label = switch (mode) {
+                        ThemeMode.light => 'Light',
+                        ThemeMode.dark => 'Dark',
+                        ThemeMode.system => 'System',
+                      };
+                      return Text(
+                        label,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -1394,6 +1436,144 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed == true) {
       await widget.manager.clearCompleted(deleteFiles: false);
     }
+  }
+
+  void _showThemeSelectionDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final currentMode = widget.themeModeNotifier.value;
+        final theme = Theme.of(ctx);
+
+        Widget buildOption({
+          required ThemeMode mode,
+          required String title,
+          required String subtitle,
+          required IconData icon,
+        }) {
+          final isSelected = currentMode == mode;
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                widget.themeModeNotifier.value = mode;
+                Navigator.of(ctx).pop();
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                margin: const EdgeInsets.symmetric(vertical: 3),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: isSelected
+                      ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
+                      : Colors.transparent,
+                  border: Border.all(
+                    color: isSelected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                    width: isSelected ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      icon,
+                      size: 22,
+                      color: isSelected
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: 11,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outline,
+                          width: 2,
+                        ),
+                      ),
+                      padding: const EdgeInsets.all(3),
+                      child: isSelected
+                          ? Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: theme.colorScheme.primary,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return AlertDialog(
+          icon: const Icon(Icons.palette_outlined, size: 28),
+          title: const Text('Choose Theme', textAlign: TextAlign.center),
+          contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              buildOption(
+                mode: ThemeMode.system,
+                title: 'System default',
+                subtitle: 'Follows your device system settings',
+                icon: Icons.brightness_auto_rounded,
+              ),
+              buildOption(
+                mode: ThemeMode.light,
+                title: 'Light',
+                subtitle: 'Clean light background with deep navy text',
+                icon: Icons.light_mode_rounded,
+              ),
+              buildOption(
+                mode: ThemeMode.dark,
+                title: 'Dark',
+                subtitle: 'OLED-friendly dark navy theme',
+                icon: Icons.dark_mode_rounded,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showAboutDialog(BuildContext context) {
