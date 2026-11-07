@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0-rc1)'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - name: Install NDK 29
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;29.0.14206865" || true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Run Static Analysis
+        run: dart analyze lib/ test/
+
+      - name: Run Test Suite
+        run: flutter test
+
+      - name: Prepare Signing Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          KS=android/app/upload-keystore.jks
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Release keystore secret KEYSTORE_BASE64 is missing."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$KS"
+          if ! keytool -certreq -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" \
+               -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" -file /dev/null >/dev/null 2>&1; then
+            echo "::error::Keystore secrets do not unlock the keystore."
+            exit 1
+          fi
+
+          cat <<EOF > android/key.properties
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=app/upload-keystore.jks
+          EOF
+          echo "Release keystore verified and key.properties created."
+
+      - name: Build Release APKs
+        run: |
+          echo "Building split-per-abi release APKs..."
+          flutter build apk --release --split-per-abi
+          echo "Building universal release APK..."
+          flutter build apk --release
+
+      - name: Prepare Release Assets
+        run: |
+          RAW_TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="${RAW_TAG#refs/tags/}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          mkdir -p dist
+
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk "dist/NetGet-${TAG}-universal.apk"
+          fi
+          if [ -f build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/NetGet-${TAG}-arm64-v8a.apk"
+          fi
+          if [ -f build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/NetGet-${TAG}-armeabi-v7a.apk"
+          fi
+          if [ -f build/app/outputs/flutter-apk/app-x86_64-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-x86_64-release.apk "dist/NetGet-${TAG}-x86_64.apk"
+          fi
+          if [ -f build/app/outputs/mapping/release/mapping.txt ]; then
+            cp build/app/outputs/mapping/release/mapping.txt "dist/mapping-${TAG}.txt"
+          fi
+
+          cd dist
+          sha256sum NetGet-*.apk > SHA256SUMS.txt
+          cd ..
+          ls -la dist/
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ env.TAG }}"
+          TITLE="NetGet $TAG"
+          NOTES_FILE=""
+          if [ -f "docs/release_notes_${TAG}.md" ]; then
+            NOTES_FILE="docs/release_notes_${TAG}.md"
+          fi
+
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" == *"-"* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [ -n "$NOTES_FILE" ]; then
+              gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" $PRERELEASE_FLAG
+            else
+              gh release create "$TAG" --title "$TITLE" --generate-notes $PRERELEASE_FLAG
+            fi
+          fi
+          gh release upload "$TAG" dist/* --clobber
