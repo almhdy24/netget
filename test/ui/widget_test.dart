@@ -273,4 +273,34 @@ void main() {
     expect(find.text('fail.zip'), findsOneWidget);
     expect(find.text('done.mp4'), findsOneWidget);
   });
+
+  testWidgets('About dialog does not contain Powered by Flutter', (WidgetTester tester) async {
+    final repository = TestDownloadRepository();
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
+    addTearDown(manager.dispose);
+    await manager.init();
+
+    await tester.pumpWidget(NetGetApp(manager: manager));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Open popup menu
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+
+    // Tap About NDM
+    await tester.tap(find.text('About NDM'));
+    await tester.pumpAndSettle();
+
+    // Verify custom about dialog is displayed
+    expect(find.text('Version 1.0.0-rc2'), findsOneWidget);
+    expect(find.text('NDM (NetGet Download Manager)'), findsOneWidget);
+
+    // Verify "Powered by Flutter" is NEVER present
+    expect(find.text('Powered by Flutter'), findsNothing);
+    expect(find.textContaining('Powered by Flutter', findRichText: true), findsNothing);
+  });
 }

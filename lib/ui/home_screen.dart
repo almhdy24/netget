@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/constants.dart';
@@ -1396,38 +1397,122 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAboutDialog(BuildContext context) {
-    showAboutDialog(
+    showDialog<void>(
       context: context,
-      applicationName: '${NetGetConstants.appName} (${NetGetConstants.appFullName})',
-      applicationVersion: '2.0.0',
-      applicationIcon: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.asset(
-          'assets/branding/netget_store_icon_512.png',
-          width: 44,
-          height: 44,
-          errorBuilder: (_, _, _) => Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: NetGetTheme.brandNavy,
-              borderRadius: BorderRadius.circular(10),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          icon: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.asset(
+              'assets/branding/netget_store_icon_512.png',
+              width: 52,
+              height: 52,
+              errorBuilder: (_, _, _) => Container(
+                width: 52,
+                height: 52,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: NetGetTheme.brandNavy,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.download_rounded,
+                  color: NetGetTheme.brandGreen,
+                  size: 30,
+                ),
+              ),
             ),
-            child: const Icon(
-              Icons.download_rounded,
-              color: NetGetTheme.brandGreen,
-              size: 28,
+          ),
+          title: const Text(
+            '${NetGetConstants.appName} (${NetGetConstants.appFullName})',
+            textAlign: TextAlign.center,
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Version 1.0.0-rc2',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'NDM (NetGet Download Manager) is a lightweight, fast, and dense Android download manager '
+                'inspired by classic desktop tools (IDM & FDM). Features live 60s speed graph, '
+                'segmented connection map, dynamic re-splitting, desktop shortcuts, '
+                'and clean Material 3 design.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => _showLicenses(ctx),
+              child: const Text('Licenses'),
             ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showLicenses(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (ctx) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Licenses'),
+          ),
+          body: FutureBuilder<List<LicenseEntry>>(
+            future: LicenseRegistry.licenses.toList(),
+            builder: (ctx, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final entries = snapshot.data ?? [];
+              if (entries.isEmpty) {
+                return const Center(child: Text('No licenses found'));
+              }
+              final packageMap = <String, List<String>>{};
+              for (final entry in entries) {
+                for (final pkg in entry.packages) {
+                  final text = entry.paragraphs.map((p) => p.text).join('\n\n');
+                  packageMap.putIfAbsent(pkg, () => []).add(text);
+                }
+              }
+              final packageNames = packageMap.keys.toList()..sort();
+              return ListView.separated(
+                itemCount: packageNames.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (ctx, index) {
+                  final pkg = packageNames[index];
+                  final texts = packageMap[pkg]!;
+                  return ExpansionTile(
+                    title: Text(pkg, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text('${texts.length} license entry'),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: SelectableText(
+                          texts.join('\n\n---\n\n'),
+                          style: Theme.of(ctx).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
           ),
         ),
       ),
-      children: const [
-        Text(
-          'NDM (NetGet Download Manager) is a lightweight, fast, and dense Android download manager '
-          'inspired by classic desktop tools (IDM & FDM). Features live 60s speed graph, '
-          'segmented connection map, dynamic re-splitting, desktop shortcuts, '
-          'and clean Material 3 design.',
-        ),
-      ],
     );
   }
 }
