@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'constants.dart';
 
@@ -96,13 +97,65 @@ class NetGetUtils {
     return 'download_${DateTime.now().millisecondsSinceEpoch}';
   }
 
-  /// Strips invalid file characters on Android/Linux.
-  static String sanitizeFileName(String input) {
-    var cleaned = input.replaceAll(RegExp(r'[\\/:*?"<>|\r\n\t]'), '_').trim();
+  static final RegExp _windowsReservedNames = RegExp(
+    r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$',
+    caseSensitive: false,
+  );
+
+  /// Strips invalid file characters on Android, Linux, and Windows.
+  /// Handles Windows reserved device names (CON, PRN, AUX, NUL, COM1..9, LPT1..9),
+  /// trailing dots/spaces, and enforces maximum file name length to respect
+  /// MAX_PATH (260 characters).
+  static String sanitizeFileName(String input, {int maxFileNameLength = 240}) {
+    // 1. Replace invalid characters (< > : " / \ | ? * and control chars) with '_'
+    var cleaned = input.replaceAll(RegExp(r'[\\/:*?"<>|\r\n\t\x00-\x1F]'), '_').trim();
+
+    // 2. Remove trailing dots and spaces (forbidden on Windows filesystem)
+    cleaned = cleaned.replaceAll(RegExp(r'[\. ]+$'), '');
+
     if (cleaned.isEmpty) {
       cleaned = 'download_${DateTime.now().millisecondsSinceEpoch}';
     }
+
+    // 3. Handle Windows reserved DOS device names
+    if (_windowsReservedNames.hasMatch(cleaned)) {
+      cleaned = '_$cleaned';
+    }
+
+    // 4. Enforce max filename length (preserves extension)
+    if (cleaned.length > maxFileNameLength) {
+      final extIndex = cleaned.lastIndexOf('.');
+      if (extIndex > 0 && extIndex > cleaned.length - 20) {
+        final ext = cleaned.substring(extIndex);
+        final maxBaseLen = maxFileNameLength - ext.length;
+        cleaned = '${cleaned.substring(0, maxBaseLen > 0 ? maxBaseLen : maxFileNameLength)}$ext';
+      } else {
+        cleaned = cleaned.substring(0, maxFileNameLength);
+      }
+      cleaned = cleaned.replaceAll(RegExp(r'[\. ]+$'), '');
+    }
+
     return cleaned;
+  }
+
+  /// Safely renames [source] to [destination] across all operating systems.
+  /// On Windows, File.rename() fails if destination exists; this helper
+  /// deletes the existing destination first and performs a fallback copy/delete
+  /// if atomic rename is blocked by filesystem locking.
+  static Future<File> safeRenameFile(File source, File destination) async {
+    if (await destination.exists()) {
+      await destination.delete();
+    }
+    try {
+      return await source.rename(destination.path);
+    } on FileSystemException {
+      if (await destination.exists()) {
+        await destination.delete();
+      }
+      await source.copy(destination.path);
+      await source.delete();
+      return destination;
+    }
   }
 
   /// Parses RFC 5987 / RFC 6266 Content-Disposition header.
@@ -298,5 +351,15 @@ class NetGetUtils {
       case DownloadCategory.other:
         return Icons.category_outlined;
     }
+  }
+
+  /// Returns whether [etag] is a strong validator according to RFC 7232 § 2.3.
+  /// Weak ETags (starting with W/ or w/) cannot be used in If-Range requests.
+  static bool isStrongEtag(String? etag) {
+    if (etag == null) return false;
+    final trimmed = etag.trim();
+    if (trimmed.isEmpty) return false;
+    if (trimmed.startsWith('W/') || trimmed.startsWith('w/')) return false;
+    return true;
   }
 }

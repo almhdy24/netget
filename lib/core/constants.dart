@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 enum DownloadCategory {
@@ -94,19 +95,19 @@ class NetGetConstants {
           baseDir = externalDirs.first;
         } else {
           final docsDir = await getApplicationDocumentsDirectory();
-          baseDir = Directory('${docsDir.path}/NetGetDownloads');
+          baseDir = Directory(p.join(docsDir.path, 'NetGetDownloads'));
         }
       } else {
         final docsDir = await getApplicationDocumentsDirectory();
-        baseDir = Directory('${docsDir.path}/NetGetDownloads');
+        baseDir = Directory(p.join(docsDir.path, 'NetGetDownloads'));
       }
     } catch (_) {
       final docsDir = await getApplicationDocumentsDirectory();
-      baseDir = Directory('${docsDir.path}/NetGetDownloads');
+      baseDir = Directory(p.join(docsDir.path, 'NetGetDownloads'));
     }
 
     if (subFolder != null && subFolder.isNotEmpty) {
-      final target = Directory('${baseDir.path}/$subFolder');
+      final target = Directory(p.join(baseDir.path, subFolder));
       if (!await target.exists()) {
         await target.create(recursive: true);
       }

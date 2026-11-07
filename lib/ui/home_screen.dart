@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/constants.dart';
@@ -450,7 +451,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             isUltraWide,
                           )
                         : _buildMobileLayout(context, filteredTasks),
-                    floatingActionButton: isWideScreen
+                    floatingActionButtonLocation: const EdgeToEdgeEndFloatLocation(),
+                    floatingActionButton: (isWideScreen ||
+                            _isSelectionMode ||
+                            MediaQuery.viewInsetsOf(context).bottom > 0)
                         ? null
                         : FloatingActionButton.extended(
                             onPressed: () => _showAddSheet(),
@@ -781,9 +785,16 @@ class _HomeScreenState extends State<HomeScreen> {
               // Download List
               Expanded(
                 child: filteredTasks.isEmpty
-                    ? _buildEmptyState()
+                    ? Padding(
+                        padding: EdgeInsets.only(
+                          bottom: 24 + MediaQuery.paddingOf(context).bottom,
+                        ),
+                        child: _buildEmptyState(),
+                      )
                     : ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 24),
+                        padding: EdgeInsets.only(
+                          bottom: 24 + MediaQuery.paddingOf(context).bottom,
+                        ),
                         itemCount: filteredTasks.length,
                         itemBuilder: (context, index) {
                           final task = filteredTasks[index];
@@ -1004,10 +1015,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // Download List or Empty State
           if (filteredTasks.isEmpty)
-            SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState())
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.paddingOf(context).bottom + 24,
+                ),
+                child: _buildEmptyState(),
+              ),
+            )
           else
             SliverPadding(
-              padding: const EdgeInsets.only(top: 4, bottom: 88),
+              padding: EdgeInsets.only(
+                top: 4,
+                bottom: MediaQuery.paddingOf(context).bottom +
+                    (_isSelectionMode ? 24 : 96),
+              ),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final task = filteredTasks[index];
@@ -1158,5 +1181,29 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
     );
+  }
+}
+
+/// Floating action button location that respects Android 15 edge-to-edge system insets
+/// (such as 3-button navigation bar and gesture nav insets) without double-padding.
+class EdgeToEdgeEndFloatLocation extends FloatingActionButtonLocation {
+  const EdgeToEdgeEndFloatLocation();
+
+  @override
+  Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
+    final double fabWidth = scaffoldGeometry.floatingActionButtonSize.width;
+    final double fabHeight = scaffoldGeometry.floatingActionButtonSize.height;
+    final double dx = scaffoldGeometry.scaffoldSize.width - fabWidth - 16.0;
+
+    final double systemBottom = math.max(
+      scaffoldGeometry.minViewPadding.bottom,
+      scaffoldGeometry.minInsets.bottom,
+    );
+    final double contentBottom = scaffoldGeometry.contentBottom;
+    final double bottomMarginAlreadyClear = scaffoldGeometry.scaffoldSize.height - contentBottom;
+    final double extraOffset = (systemBottom - bottomMarginAlreadyClear).clamp(0.0, double.infinity);
+
+    final double dy = contentBottom - fabHeight - 16.0 - extraOffset;
+    return Offset(dx, dy);
   }
 }

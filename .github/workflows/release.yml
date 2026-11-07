@@ -1,0 +1,241 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0-rc1)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run: build and upload artifacts only, do not publish GitHub Release'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - name: Install NDK 29
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;29.0.14206865" || true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Run Static Analysis
+        run: dart analyze lib/ test/
+
+      - name: Run Test Suite
+        run: flutter test
+
+      - name: Prepare Signing Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          IS_DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          KS=android/app/upload-keystore.jks
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            if [ "$IS_DRY_RUN" = "true" ]; then
+              echo "::warning::KEYSTORE_BASE64 is empty on dry_run; falling back to debug signing."
+              echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+              exit 0
+            else
+              echo "::error::Release keystore secret KEYSTORE_BASE64 is missing for release tag/workflow!"
+              exit 1
+            fi
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$KS"
+          if ! keytool -certreq -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" \
+               -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" -file /dev/null >/dev/null 2>&1; then
+            if [ "$IS_DRY_RUN" = "true" ]; then
+              echo "::warning::Keystore verification failed on dry_run; falling back to debug signing."
+              echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+              rm -f "$KS"
+              exit 0
+            else
+              echo "::error::Keystore secrets do not unlock the keystore!"
+              exit 1
+            fi
+          fi
+
+          cat <<EOF > android/key.properties
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=app/upload-keystore.jks
+          EOF
+          echo "Release keystore verified and key.properties created."
+
+      - name: Verify Pre-Build Signing Guard
+        env:
+          IS_DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          if [ "$IS_DRY_RUN" != "true" ]; then
+            if [ ! -f "android/key.properties" ] || [ ! -f "android/app/upload-keystore.jks" ]; then
+              echo "::error::Signing guard failed: android/key.properties or keystore file missing!"
+              exit 1
+            fi
+            echo "Pre-build signing guard passed: release keystore and properties present."
+          else
+            echo "Dry run mode active: strict pre-build key guard waived."
+          fi
+
+      - name: Build Release APKs & App Bundle
+        run: |
+          echo "Building split-per-abi release APKs..."
+          flutter build apk --release --split-per-abi
+          echo "Building universal release APK..."
+          flutter build apk --release
+          echo "Building release Android App Bundle (AAB)..."
+          flutter build appbundle --release
+
+      - name: Prepare Release Assets
+        run: |
+          RAW_TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="${RAW_TAG#refs/tags/}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          mkdir -p dist
+
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk "dist/NetGet-${TAG}-universal.apk"
+          fi
+          if [ -f build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/NetGet-${TAG}-arm64-v8a.apk"
+          fi
+          if [ -f build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/NetGet-${TAG}-armeabi-v7a.apk"
+          fi
+          if [ -f build/app/outputs/flutter-apk/app-x86_64-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-x86_64-release.apk "dist/NetGet-${TAG}-x86_64.apk"
+          fi
+          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
+            cp build/app/outputs/bundle/release/app-release.aab "dist/NetGet-${TAG}.aab"
+          fi
+          if [ -f build/app/outputs/mapping/release/mapping.txt ]; then
+            cp build/app/outputs/mapping/release/mapping.txt "dist/mapping-${TAG}.txt"
+          fi
+
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cd ..
+          ls -la dist/
+
+      - name: Verify Artifact Signatures & Guard Against Debug Key
+        env:
+          IS_DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          echo "Using apksigner: $APKSIGNER" # verify flags
+
+          FOUND_DEBUG_CERT="false"
+
+          for apk in dist/*.apk; do
+            [ -e "$apk" ] || continue
+            echo "--------------------------------------------------------"
+            echo "Verifying APK signature: $apk"
+            # apksigner verify --print-certs outputs DN and SHA-256 digest
+            CERT_INFO=$("$APKSIGNER" verify --print-certs "$apk" 2>&1 || true)
+            echo "$CERT_INFO"
+            CERT_SHA256=$(echo "$CERT_INFO" | grep -i "SHA-256 digest" | head -n 1 | awk '{print $NF}')
+            echo "APK Cert SHA-256: $CERT_SHA256"
+
+            if echo "$CERT_INFO" | grep -i "Android Debug" >/dev/null; then
+              echo "::warning file=$apk::APK is signed with Android Debug certificate!"
+              FOUND_DEBUG_CERT="true"
+            fi
+          done
+
+          for aab in dist/*.aab; do
+            [ -e "$aab" ] || continue
+            echo "--------------------------------------------------------"
+            echo "Verifying AAB signature: $aab"
+            # keytool -printcert -jarfile prints certificate chain and SHA-256 fingerprint for zip/aab
+            AAB_CERT_INFO=$(keytool -printcert -jarfile "$aab" 2>&1 || true) # verify flags
+            echo "$AAB_CERT_INFO"
+            AAB_SHA256=$(echo "$AAB_CERT_INFO" | grep -i "SHA256:" | head -n 1 | awk '{print $NF}')
+            echo "AAB Cert SHA-256: $AAB_SHA256"
+
+            if echo "$AAB_CERT_INFO" | grep -i "Android Debug" >/dev/null; then
+              echo "::warning file=$aab::AAB is signed with Android Debug certificate!"
+              FOUND_DEBUG_CERT="true"
+            fi
+          done
+
+          if [ "$FOUND_DEBUG_CERT" = "true" ]; then
+            echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+            if [ "$IS_DRY_RUN" != "true" ]; then
+              echo "::error::Artifact signer subject contains 'Android Debug'! Non-dry-run release rejected."
+              exit 1
+            else
+              echo "Dry run mode: Debug-signed artifacts permitted but clearly labelled in artifact name."
+            fi
+          fi
+
+      - name: Verify 16 KB Page Alignment of Native Libraries
+        run: bash tool/check_16kb_page_alignment.sh
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ (inputs.dry_run == true && env.IS_DEBUG_SIGNED == 'true') && format('netget-release-{0}-DRY-RUN-DEBUG', env.TAG) || format('netget-release-{0}', env.TAG) }}
+          path: dist/*
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ env.TAG }}"
+          TITLE="NetGet $TAG"
+          NOTES_FILE=""
+          if [ -f "docs/release_notes_${TAG}.md" ]; then
+            NOTES_FILE="docs/release_notes_${TAG}.md"
+          fi
+
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" == *"-"* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [ -n "$NOTES_FILE" ]; then
+              gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" $PRERELEASE_FLAG
+            else
+              gh release create "$TAG" --title "$TITLE" --generate-notes $PRERELEASE_FLAG
+            fi
+          fi
+          gh release upload "$TAG" dist/* --clobber

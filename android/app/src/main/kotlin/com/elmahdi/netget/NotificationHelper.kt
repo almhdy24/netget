@@ -113,7 +113,7 @@ class NotificationHelper(private val context: Context) {
     fun buildSummaryNotification(
         activeCount: Int,
         totalSpeedStr: String,
-        completedCount: Int
+        completedCount: Int = 0
     ): Notification {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -126,9 +126,15 @@ class NotificationHelper(private val context: Context) {
         )
 
         val statText = if (activeCount > 0) {
-            "$activeCount downloading ($totalSpeedStr) • $completedCount completed"
+            if (completedCount > 0) {
+                "$activeCount downloading ($totalSpeedStr) • $completedCount completed"
+            } else if (totalSpeedStr.isNotEmpty()) {
+                "$activeCount downloading ($totalSpeedStr)"
+            } else {
+                "$activeCount downloading"
+            }
         } else {
-            "All transfers finished • $completedCount total"
+            "All transfers finished"
         }
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
@@ -142,6 +148,14 @@ class NotificationHelper(private val context: Context) {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+
+    fun notifySummary(notificationId: Int, notification: Notification) {
+        try {
+            notificationManager.notify(notificationId, notification)
+        } catch (_: Exception) {
+            // Safe when POST_NOTIFICATIONS is denied on Android 13+ (verify in docs)
+        }
     }
 
     fun buildTaskProgressNotification(

@@ -2,17 +2,20 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import '../core/constants.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
 import '../data/download_repository.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
+import 'multi_connection_downloader.dart';
 
 class _ActiveDownloadContext {
   HttpClientRequest? request;
   StreamSubscription<List<int>>? subscription;
   IOSink? sink;
+  MultiConnectionDownloader? multiDownloader;
   bool isPaused = false;
   bool isCancelled = false;
 }
@@ -108,6 +111,95 @@ class DownloadManager extends ChangeNotifier {
     NetGetConstants.defaultQueueName: true,
   };
 
+  /// Default connections setting (default 1 preserves legacy single-stream behavior;
+  /// multi-connection engine is activated when connections > 1 and server supports ranges).
+  int defaultConnections = 1;
+
+  DateTime Function() clock = DateTime.now;
+  DateTime _lastSaveTime = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _saveThrottleTimer;
+  bool _hasPendingSave = false;
+
+  // Background keep-alive & native notification synchronization state
+  int _reportedActiveCount = 0;
+  DateTime _lastNativeProgressReport = DateTime.fromMillisecondsSinceEpoch(0);
+  StreamSubscription<dynamic>? _nativeEventSubscription;
+  bool isAndroidForTesting = false;
+  Stream<dynamic>? eventStreamForTesting;
+
+  /// Reports active download count and debounced progress summary to native foreground service.
+  void _syncActiveDownloadsToNative({bool force = false}) {
+    if (!Platform.isAndroid && !isAndroidForTesting) return;
+
+    final currentDownloadingCount =
+        _tasks.where((t) => t.status == DownloadStatus.downloading).length;
+    final now = clock();
+
+    // 0 <-> N transitions or active count changes are reported immediately
+    if (force || currentDownloadingCount != _reportedActiveCount) {
+      _reportedActiveCount = currentDownloadingCount;
+      _lastNativeProgressReport = now;
+      final speedText = currentDownloadingCount > 0
+          ? NetGetUtils.formatSpeed(currentTotalSpeed)
+          : '';
+      _invokeNative('updateActiveDownloads', {
+        'activeCount': currentDownloadingCount,
+        'progressText': speedText,
+      });
+    } else if (currentDownloadingCount > 0) {
+      // Progress text is throttled to at most once per second
+      final elapsedMs = now.difference(_lastNativeProgressReport).inMilliseconds;
+      if (elapsedMs >= 1000) {
+        _lastNativeProgressReport = now;
+        final speedText = NetGetUtils.formatSpeed(currentTotalSpeed);
+        _invokeNative('updateActiveDownloads', {
+          'activeCount': currentDownloadingCount,
+          'progressText': speedText,
+        });
+      }
+    }
+  }
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    _syncActiveDownloadsToNative();
+  }
+
+  /// Throttled save: max 1 save per second across progress ticks.
+  void scheduleThrottledSave() {
+    final now = clock();
+    final elapsedMs = now.difference(_lastSaveTime).inMilliseconds;
+    if (elapsedMs >= 1000) {
+      _saveThrottleTimer?.cancel();
+      _saveThrottleTimer = null;
+      _hasPendingSave = false;
+      _lastSaveTime = now;
+      _repository.saveTasks(_tasks);
+    } else {
+      _hasPendingSave = true;
+      if (_saveThrottleTimer == null || !_saveThrottleTimer!.isActive) {
+        final waitMs = 1000 - elapsedMs;
+        _saveThrottleTimer = Timer(Duration(milliseconds: waitMs), () {
+          if (_hasPendingSave) {
+            _hasPendingSave = false;
+            _lastSaveTime = clock();
+            _repository.saveTasks(_tasks);
+          }
+        });
+      }
+    }
+  }
+
+  /// Immediate save for lifecycle state transitions (pause, cancel, complete, delete, add).
+  Future<void> saveImmediate() async {
+    _saveThrottleTimer?.cancel();
+    _saveThrottleTimer = null;
+    _hasPendingSave = false;
+    _lastSaveTime = clock();
+    await _repository.saveTasks(_tasks);
+  }
+
   DownloadManager({
     required DownloadRepository repository,
     HttpClient Function()? clientFactory,
@@ -164,10 +256,16 @@ class DownloadManager extends ChangeNotifier {
     String method, [
     Map<String, dynamic>? args,
   ]) async {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || isAndroidForTesting) {
       try {
         await _platform.invokeMethod(method, args);
-      } catch (_) {}
+      } on PlatformException catch (e) {
+        debugPrint('Native MethodChannel error ($method): ${e.code} - ${e.message}');
+        // ForegroundServiceStartNotAllowedException or permission denial: Dart engine
+        // logs warning and safely continues downloading without crashing or aborting.
+      } catch (e) {
+        debugPrint('Unexpected error calling native channel ($method): $e');
+      }
     }
   }
 
@@ -214,10 +312,17 @@ class DownloadManager extends ChangeNotifier {
   }
 
   void _initNativeBridge() {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || isAndroidForTesting) {
       try {
-        _eventChannel.receiveBroadcastStream().listen((dynamic event) {
+        _nativeEventSubscription?.cancel();
+        final stream = eventStreamForTesting ?? _eventChannel.receiveBroadcastStream();
+        _nativeEventSubscription = stream.listen((dynamic event) {
           if (event is Map) {
+            // Android 15 dataSync 6-hour timeout event: pause all downloads cleanly
+            if (event['event'] == 'onTimeout') {
+              pauseAll();
+              return;
+            }
             final taskId = event['taskId'] as String?;
             final downloaded = (event['downloadedBytes'] as num?)?.toInt();
             final speed = (event['speedBytesPerSec'] as num?)?.toDouble();
@@ -346,7 +451,7 @@ class DownloadManager extends ChangeNotifier {
         : await NetGetConstants.getDownloadsDirectory(subFolder: folderName);
     final savePath = await _resolveUniqueFilePath(downloadsDir.path, fileName);
 
-    final connCount = connectionCount ?? NetGetConstants.defaultConnections;
+    final connCount = connectionCount ?? defaultConnections;
     final isResumable = resumable ?? true;
     final fileTotalBytes = totalBytes ?? -1;
 
@@ -385,7 +490,7 @@ class DownloadManager extends ChangeNotifier {
     }
 
     _tasks.insert(0, task);
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     if (startNow) {
@@ -450,7 +555,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(taskId, 'INFO', 'Download URL refreshed: $newUrl');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
   }
 
@@ -487,7 +592,7 @@ class DownloadManager extends ChangeNotifier {
     _taskElapsedSeconds[taskId] = 0;
     logEvent(taskId, 'INFO', 'Restarted download from 0 B');
 
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
     _processQueue();
   }
@@ -534,6 +639,9 @@ class DownloadManager extends ChangeNotifier {
     final ctx = _activeContexts[id];
     if (ctx != null) {
       ctx.isPaused = true;
+      if (ctx.multiDownloader != null) {
+        await ctx.multiDownloader!.pause();
+      }
       try {
         await ctx.subscription?.cancel();
         await ctx.sink?.flush();
@@ -549,7 +657,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(id, 'INFO', 'Download paused');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     _processQueue();
@@ -573,7 +681,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(id, 'INFO', 'Download queued for resume');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     _processQueue();
@@ -593,6 +701,9 @@ class DownloadManager extends ChangeNotifier {
     final ctx = _activeContexts[id];
     if (ctx != null) {
       ctx.isCancelled = true;
+      if (ctx.multiDownloader != null) {
+        await ctx.multiDownloader!.cancel();
+      }
       try {
         await ctx.subscription?.cancel();
         await ctx.sink?.flush();
@@ -618,7 +729,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(id, 'WARN', 'Download cancelled');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     _processQueue();
@@ -646,7 +757,7 @@ class DownloadManager extends ChangeNotifier {
     _taskSpeedSamples.remove(id);
     _taskElapsedSeconds.remove(id);
 
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
   }
 
@@ -667,7 +778,7 @@ class DownloadManager extends ChangeNotifier {
       _taskElapsedSeconds.remove(task.id);
     }
     _tasks.removeWhere((t) => t.status.isCompleted);
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
   }
 
@@ -804,6 +915,16 @@ class DownloadManager extends ChangeNotifier {
   @override
   void dispose() {
     _schedulerTimer?.cancel();
+    _saveThrottleTimer?.cancel();
+    _nativeEventSubscription?.cancel();
+    _nativeEventSubscription = null;
+    if (_reportedActiveCount > 0) {
+      _reportedActiveCount = 0;
+      _invokeNative('updateActiveDownloads', {
+        'activeCount': 0,
+        'progressText': '',
+      });
+    }
     super.dispose();
   }
 
@@ -869,24 +990,238 @@ class DownloadManager extends ChangeNotifier {
         existingBytes = await file.length();
       }
 
-      if (currentTask.totalBytes > 0 &&
-          existingBytes >= currentTask.totalBytes) {
+      // Restart / Resume verification:
+      // A file may be preallocated on disk to totalBytes with holes.
+      // NEVER mark completed or assume done solely based on file.length() >= totalBytes.
+      // A task is only completed if its status is already completed, or all segments are verified complete.
+      final areSegmentsVerifiedComplete = currentTask.segments.isNotEmpty &&
+          currentTask.segments.every((s) => s.isFinished && s.isCompleted) &&
+          currentTask.downloadedBytes >= currentTask.totalBytes &&
+          currentTask.totalBytes > 0;
+
+      if (currentTask.status == DownloadStatus.completed || areSegmentsVerifiedComplete) {
         _tasks[index] = currentTask.copyWith(
           downloadedBytes: currentTask.totalBytes,
           status: DownloadStatus.completed,
           speedBytesPerSec: 0.0,
-          completedAt: DateTime.now(),
+          completedAt: currentTask.completedAt ?? DateTime.now(),
         );
-        logEvent(taskId, 'INFO', 'File already complete');
+        logEvent(taskId, 'INFO', 'File already verified complete');
         _activeContexts.remove(taskId);
         client.close(force: true);
-        await _repository.saveTasks(_tasks);
+        await saveImmediate();
         notifyListeners();
         _processQueue();
         return;
       }
 
+      // If a multi-connection task has preallocated existing bytes on disk but segment metadata
+      // is missing, we cannot know which byte ranges are actual data vs unwritten holes.
+      // Restart cleanly from byte 0 to guarantee file integrity.
+      if (currentTask.connectionCount > 1 && currentTask.segments.isEmpty && existingBytes > 0) {
+        logEvent(taskId, 'WARN', 'Task has preallocated file with missing segment records. Restarting from byte 0.');
+        try {
+          final raf = await file.open(mode: FileMode.write);
+          await raf.truncate(0);
+          await raf.close();
+        } catch (_) {}
+        existingBytes = 0;
+        currentTask = currentTask.copyWith(
+          downloadedBytes: 0,
+          segments: [],
+        );
+        _tasks[index] = currentTask;
+      }
+
       final uri = Uri.parse(currentTask.url);
+
+      // Multi-connection engine path: used when connectionCount > 1 and server supports ranges
+      if (currentTask.connectionCount > 1) {
+        final multiDownloader = MultiConnectionDownloader(
+          id: taskId,
+          uri: uri,
+          savePath: currentTask.savePath,
+          connectionCount: currentTask.connectionCount,
+          etag: currentTask.etag,
+          lastModified: currentTask.lastModified,
+          initialSegments: currentTask.segments,
+          clientFactory: () => _createHttpClient(),
+          onProgress: (downloaded, total, speed, segs) {
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
+              final samples = _taskSpeedSamples.putIfAbsent(taskId, () => []);
+              samples.add(speed);
+              if (samples.length > 60) samples.removeAt(0);
+
+              final currentElapsed = (_taskElapsedSeconds[taskId] ?? 0) + 1;
+              _taskElapsedSeconds[taskId] = currentElapsed;
+
+              _tasks[idx] = _tasks[idx].copyWith(
+                downloadedBytes: downloaded,
+                totalBytes: total > 0 ? total : _tasks[idx].totalBytes,
+                speedBytesPerSec: speed,
+                elapsedSeconds: currentElapsed,
+                // Segment offsets in task state are strictly updated via flushed onCheckpoint
+              );
+              notifyListeners();
+              scheduleThrottledSave();
+            }
+          },
+          onCheckpoint: (segs) async {
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0) {
+              final flushedBytes = segs.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+              _tasks[idx] = _tasks[idx].copyWith(
+                segments: segs,
+                downloadedBytes: flushedBytes,
+              );
+              scheduleThrottledSave();
+            }
+          },
+          onLog: (lvl, msg) {
+            logEvent(taskId, lvl, msg);
+          },
+        );
+
+        ctx.multiDownloader = multiDownloader;
+
+        bool shouldUseMulti = false;
+        try {
+          final probe = await multiDownloader.probeServer();
+          if (ctx.isPaused || ctx.isCancelled) {
+            _activeContexts.remove(taskId);
+            client.close(force: true);
+            return;
+          }
+          if (probe.isRangeSupported && probe.totalBytes > 256 * 1024) {
+            shouldUseMulti = true;
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0) {
+              _tasks[idx] = _tasks[idx].copyWith(
+                totalBytes: probe.totalBytes,
+                etag: probe.etag ?? _tasks[idx].etag,
+                lastModified: probe.lastModified ?? _tasks[idx].lastModified,
+                resumable: true,
+              );
+            }
+          }
+        } catch (e) {
+          if (e is HttpException && e.message.contains('Server file changed')) {
+            logEvent(taskId, 'WARN', 'Server ETag changed after restart: $e. Discarding partial file and restarting from 0.');
+            try {
+              final raf = await file.open(mode: FileMode.write);
+              await raf.truncate(0);
+              await raf.close();
+            } catch (_) {}
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0) {
+              _tasks[idx] = _tasks[idx].copyWith(
+                downloadedBytes: 0,
+                etag: null,
+                segments: [],
+              );
+              await saveImmediate();
+            }
+            _activeContexts.remove(taskId);
+            client.close(force: true);
+            _startDownloading(taskId);
+            return;
+          }
+          logEvent(taskId, 'WARN', 'Multi-connection probe: $e; falling back to single stream');
+        }
+
+        if (shouldUseMulti) {
+          try {
+            await multiDownloader.start();
+            if (ctx.isPaused || ctx.isCancelled || multiDownloader.isPaused || multiDownloader.isCancelled) {
+              _activeContexts.remove(taskId);
+              client.close(force: true);
+              return;
+            }
+
+            final idx = _tasks.indexWhere((t) => t.id == taskId);
+            if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
+              _tasks[idx] = _tasks[idx].copyWith(
+                status: DownloadStatus.completed,
+                downloadedBytes: multiDownloader.totalBytes > 0 ? multiDownloader.totalBytes : _tasks[idx].downloadedBytes,
+                totalBytes: multiDownloader.totalBytes > 0 ? multiDownloader.totalBytes : _tasks[idx].totalBytes,
+                speedBytesPerSec: 0.0,
+                completedAt: DateTime.now(),
+                segments: multiDownloader.segments,
+              );
+              logEvent(taskId, 'INFO', 'Download completed successfully!');
+              await saveImmediate();
+              notifyListeners();
+            }
+            _activeContexts.remove(taskId);
+            client.close(force: true);
+            _processQueue();
+            return;
+          } catch (e) {
+            if (ctx.isPaused || ctx.isCancelled) {
+              _activeContexts.remove(taskId);
+              client.close(force: true);
+              return;
+            }
+            if (e is DiskSpaceException ||
+                (e is FileSystemException &&
+                    (e.message.contains('Insufficient disk space') ||
+                        e.osError?.errorCode == 28 ||
+                        e.message.toLowerCase().contains('no space')))) {
+              final idx = _tasks.indexWhere((t) => t.id == taskId);
+              if (idx >= 0) {
+                _tasks[idx] = _tasks[idx].copyWith(
+                  status: DownloadStatus.failed,
+                  errorMessage: 'Disk is full. Please free up storage space to resume download.',
+                  speedBytesPerSec: 0.0,
+                );
+                logEvent(taskId, 'ERROR', 'Disk full: $e');
+                await saveImmediate();
+                notifyListeners();
+              }
+              _activeContexts.remove(taskId);
+              client.close(force: true);
+              _processQueue();
+              return;
+            }
+            if (e is HttpException && e.message.contains('Server file changed')) {
+              logEvent(taskId, 'WARN', 'Server ETag changed mid-download: $e. Discarding partial file and restarting from 0.');
+              try {
+                final raf = await file.open(mode: FileMode.write);
+                await raf.truncate(0);
+                await raf.close();
+              } catch (_) {}
+              final idx = _tasks.indexWhere((t) => t.id == taskId);
+              if (idx >= 0) {
+                _tasks[idx] = _tasks[idx].copyWith(
+                  downloadedBytes: 0,
+                  etag: null,
+                  segments: [],
+                );
+                await saveImmediate();
+              }
+              _activeContexts.remove(taskId);
+              client.close(force: true);
+              _startDownloading(taskId);
+              return;
+            }
+            logEvent(taskId, 'WARN', 'Multi-connection download failed: $e; falling back to single stream');
+          }
+        }
+      }
+
+      // Single stream fallback for multi-connection tasks:
+      // If the file was preallocated with holes, single-stream cannot safely append to existingBytes.
+      if (currentTask.connectionCount > 1 && existingBytes > 0) {
+        logEvent(taskId, 'WARN', 'Single stream fallback for multi-connection task requires fresh restart from byte 0.');
+        try {
+          final raf = await file.open(mode: FileMode.write);
+          await raf.truncate(0);
+          await raf.close();
+        } catch (_) {}
+        existingBytes = 0;
+      }
+
       final request = await client.getUrl(uri);
       ctx.request = request;
 
@@ -901,14 +1236,23 @@ class DownloadManager extends ChangeNotifier {
 
       final shouldRange = existingBytes > 0 && currentTask.resumable;
       if (shouldRange) {
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingBytes-');
-        if (currentTask.etag != null) {
-          request.headers.set(HttpHeaders.ifRangeHeader, currentTask.etag!);
-        } else if (currentTask.lastModified != null) {
-          request.headers.set(
-            HttpHeaders.ifRangeHeader,
-            currentTask.lastModified!,
-          );
+        String? ifRangeValidator;
+        if (NetGetUtils.isStrongEtag(currentTask.etag)) {
+          ifRangeValidator = currentTask.etag;
+        } else if (currentTask.lastModified != null && currentTask.lastModified!.trim().isNotEmpty) {
+          ifRangeValidator = currentTask.lastModified;
+        }
+
+        if (ifRangeValidator != null) {
+          request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingBytes-');
+          request.headers.set(HttpHeaders.ifRangeHeader, ifRangeValidator);
+        } else {
+          existingBytes = 0;
+          try {
+            final raf = await file.open(mode: FileMode.write);
+            await raf.truncate(0);
+            await raf.close();
+          } catch (_) {}
         }
       }
 
@@ -932,6 +1276,21 @@ class DownloadManager extends ChangeNotifier {
       bool resumable = currentTask.resumable;
 
       if (statusCode == HttpStatus.partialContent) {
+        final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+        if (contentRange != null && contentRange.startsWith('bytes ')) {
+          final rangePart = contentRange.substring(6).split('/')[0].trim();
+          final rangeParts = rangePart.split('-');
+          if (rangeParts.isNotEmpty) {
+            final actualStart = int.tryParse(rangeParts[0]);
+            if (actualStart != null && actualStart != existingBytes) {
+              await response.drain<void>();
+              throw HttpException(
+                'Server returned unexpected Content-Range start: $actualStart != requested $existingBytes',
+                uri: uri,
+              );
+            }
+          }
+        }
         isAppend = true;
         resumable = true;
         final len = response.contentLength;
@@ -1048,6 +1407,7 @@ class DownloadManager extends ChangeNotifier {
                 segments: segments,
               );
               notifyListeners();
+              scheduleThrottledSave();
             }
           }
         },
@@ -1069,7 +1429,7 @@ class DownloadManager extends ChangeNotifier {
                 downloadedBytes: downloadedBytes,
               );
               logEvent(taskId, 'ERROR', 'Error: $cleanMsg');
-              await _repository.saveTasks(_tasks);
+              await saveImmediate();
               notifyListeners();
             }
           }
@@ -1097,7 +1457,7 @@ class DownloadManager extends ChangeNotifier {
                 segments: segments,
               );
               logEvent(taskId, 'INFO', 'Download completed successfully!');
-              await _repository.saveTasks(_tasks);
+              await saveImmediate();
               notifyListeners();
             }
           }
@@ -1122,7 +1482,7 @@ class DownloadManager extends ChangeNotifier {
             speedBytesPerSec: 0.0,
           );
           logEvent(taskId, 'ERROR', 'Failure: $cleanMsg');
-          await _repository.saveTasks(_tasks);
+          await saveImmediate();
           notifyListeners();
         }
       }
@@ -1130,7 +1490,20 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
+  String cleanErrorMessageForTesting(dynamic error) => _cleanErrorMessage(error);
+
   String _cleanErrorMessage(dynamic error) {
+    if (error is DiskSpaceException) {
+      return 'Disk is full. Please free up storage space to resume download.';
+    }
+    if (error is FileSystemException) {
+      if (error.osError?.errorCode == 28 ||
+          error.message.toLowerCase().contains('no space') ||
+          (error.osError?.message.toLowerCase().contains('no space') ?? false)) {
+        return 'Disk is full. Please free up storage space to resume download.';
+      }
+      return 'Disk I/O error: ${error.message}';
+    }
     if (error is SocketException) {
       return 'Network connection failed (${error.osError?.message ?? error.message})';
     }
@@ -1150,7 +1523,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<String> _resolveUniqueFilePath(String dirPath, String fileName) async {
-    var candidate = '$dirPath/$fileName';
+    var candidate = p.join(dirPath, fileName);
     if (!await File(candidate).exists()) {
       return candidate;
     }
@@ -1160,9 +1533,9 @@ class DownloadManager extends ChangeNotifier {
     final ext = dotIndex > 0 ? fileName.substring(dotIndex) : '';
 
     var counter = 1;
-    while (await File('$dirPath/$base($counter)$ext').exists()) {
+    while (await File(p.join(dirPath, '$base($counter)$ext')).exists()) {
       counter++;
     }
-    return '$dirPath/$base($counter)$ext';
+    return p.join(dirPath, '$base($counter)$ext');
   }
 }
