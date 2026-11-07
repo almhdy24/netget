@@ -64,15 +64,6 @@ android {
             )
         }
     }
-
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64")
-            isUniversalApk = false
-        }
-    }
 }
 
 flutter {
