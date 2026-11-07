@@ -64,17 +64,31 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          IS_DRY_RUN: ${{ inputs.dry_run == true }}
         run: |
           KS=android/app/upload-keystore.jks
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::Release keystore secret KEYSTORE_BASE64 is missing."
-            exit 1
+            if [ "$IS_DRY_RUN" = "true" ]; then
+              echo "::warning::KEYSTORE_BASE64 is empty on dry_run; falling back to debug signing."
+              echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+              exit 0
+            else
+              echo "::error::Release keystore secret KEYSTORE_BASE64 is missing for release tag/workflow!"
+              exit 1
+            fi
           fi
           echo "$KEYSTORE_BASE64" | base64 --decode > "$KS"
           if ! keytool -certreq -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" \
                -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" -file /dev/null >/dev/null 2>&1; then
-            echo "::error::Keystore secrets do not unlock the keystore."
-            exit 1
+            if [ "$IS_DRY_RUN" = "true" ]; then
+              echo "::warning::Keystore verification failed on dry_run; falling back to debug signing."
+              echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+              rm -f "$KS"
+              exit 0
+            else
+              echo "::error::Keystore secrets do not unlock the keystore!"
+              exit 1
+            fi
           fi
 
           cat <<EOF > android/key.properties
@@ -84,6 +98,20 @@ jobs:
           storeFile=app/upload-keystore.jks
           EOF
           echo "Release keystore verified and key.properties created."
+
+      - name: Verify Pre-Build Signing Guard
+        env:
+          IS_DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          if [ "$IS_DRY_RUN" != "true" ]; then
+            if [ ! -f "android/key.properties" ] || [ ! -f "android/app/upload-keystore.jks" ]; then
+              echo "::error::Signing guard failed: android/key.properties or keystore file missing!"
+              exit 1
+            fi
+            echo "Pre-build signing guard passed: release keystore and properties present."
+          else
+            echo "Dry run mode active: strict pre-build key guard waived."
+          fi
 
       - name: Build Release APKs & App Bundle
         run: |
@@ -125,13 +153,64 @@ jobs:
           cd ..
           ls -la dist/
 
+      - name: Verify Artifact Signatures & Guard Against Debug Key
+        env:
+          IS_DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          echo "Using apksigner: $APKSIGNER" # verify flags
+
+          FOUND_DEBUG_CERT="false"
+
+          for apk in dist/*.apk; do
+            [ -e "$apk" ] || continue
+            echo "--------------------------------------------------------"
+            echo "Verifying APK signature: $apk"
+            # apksigner verify --print-certs outputs DN and SHA-256 digest
+            CERT_INFO=$("$APKSIGNER" verify --print-certs "$apk" 2>&1 || true)
+            echo "$CERT_INFO"
+            CERT_SHA256=$(echo "$CERT_INFO" | grep -i "SHA-256 digest" | head -n 1 | awk '{print $NF}')
+            echo "APK Cert SHA-256: $CERT_SHA256"
+
+            if echo "$CERT_INFO" | grep -i "Android Debug" >/dev/null; then
+              echo "::warning file=$apk::APK is signed with Android Debug certificate!"
+              FOUND_DEBUG_CERT="true"
+            fi
+          done
+
+          for aab in dist/*.aab; do
+            [ -e "$aab" ] || continue
+            echo "--------------------------------------------------------"
+            echo "Verifying AAB signature: $aab"
+            # keytool -printcert -jarfile prints certificate chain and SHA-256 fingerprint for zip/aab
+            AAB_CERT_INFO=$(keytool -printcert -jarfile "$aab" 2>&1 || true) # verify flags
+            echo "$AAB_CERT_INFO"
+            AAB_SHA256=$(echo "$AAB_CERT_INFO" | grep -i "SHA256:" | head -n 1 | awk '{print $NF}')
+            echo "AAB Cert SHA-256: $AAB_SHA256"
+
+            if echo "$AAB_CERT_INFO" | grep -i "Android Debug" >/dev/null; then
+              echo "::warning file=$aab::AAB is signed with Android Debug certificate!"
+              FOUND_DEBUG_CERT="true"
+            fi
+          done
+
+          if [ "$FOUND_DEBUG_CERT" = "true" ]; then
+            echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+            if [ "$IS_DRY_RUN" != "true" ]; then
+              echo "::error::Artifact signer subject contains 'Android Debug'! Non-dry-run release rejected."
+              exit 1
+            else
+              echo "Dry run mode: Debug-signed artifacts permitted but clearly labelled in artifact name."
+            fi
+          fi
+
       - name: Verify 16 KB Page Alignment of Native Libraries
         run: bash tool/check_16kb_page_alignment.sh
 
       - name: Upload Release Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: netget-release-${{ env.TAG }}
+          name: ${{ (inputs.dry_run == true && env.IS_DEBUG_SIGNED == 'true') && format('netget-release-{0}-DRY-RUN-DEBUG', env.TAG) || format('netget-release-{0}', env.TAG) }}
           path: dist/*
           retention-days: 14
 
