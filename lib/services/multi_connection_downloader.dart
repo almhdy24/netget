@@ -128,6 +128,7 @@ class MultiConnectionDownloader {
   final Future<void> Function(List<DownloadSegment> segments)? onCheckpoint;
   final void Function(String level, String message)? onLog;
   final DiskSpaceChecker? diskSpaceChecker;
+  final Future<ConcurrentFileWriter> Function(File file)? writerFactory;
 
   bool _isPaused = false;
   bool _isCancelled = false;
@@ -154,6 +155,7 @@ class MultiConnectionDownloader {
     this.etag,
     this.lastModified,
     this.diskSpaceChecker,
+    this.writerFactory,
     List<DownloadSegment>? initialSegments,
   }) {
     if (initialSegments != null && initialSegments.isNotEmpty) {
@@ -325,8 +327,12 @@ class MultiConnectionDownloader {
     }
 
     // Step 2: Open file and preallocate
-    final raf = await file.open(mode: FileMode.append);
-    _writer = ConcurrentFileWriter(raf);
+    if (writerFactory != null) {
+      _writer = await writerFactory!(file);
+    } else {
+      final raf = await file.open(mode: FileMode.append);
+      _writer = ConcurrentFileWriter(raf);
+    }
     if (totalBytes > 0) {
       await _writer!.preallocate(totalBytes);
     }
@@ -375,10 +381,22 @@ class MultiConnectionDownloader {
       }
     }
 
+    // Periodic checkpoint timer: guarantees onCheckpoint is invoked during normal progress,
+    // strictly preceded by _writer.flush()
+    final checkpointTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      if (!_isPaused && !_isCancelled) {
+        try {
+          await checkpoint();
+        } catch (_) {}
+      }
+    });
+
     try {
       await Future.wait(workerFutures);
-      await _writer?.flush();
+      checkpointTimer.cancel();
+      await checkpoint();
     } finally {
+      checkpointTimer.cancel();
       await _writer?.close();
     }
 
@@ -492,16 +510,6 @@ class MultiConnectionDownloader {
             'Incomplete segment transfer: ${segment.remainingBytes} bytes remaining',
             uri: uri,
           );
-        }
-
-        // Dynamic Segment Re-splitting:
-        // If this worker finished its segment, look for an active segment with >= 512 KB left to split!
-        if (segment.isCompleted && !_isPaused && !_isCancelled) {
-          final newSegment = SegmentPlanner.splitLargestSegment(segments, minThreshold: 512 * 1024);
-          if (newSegment != null) {
-            _log('INFO', 'Segment ${segment.index} re-split segment ${newSegment.index} [${newSegment.startByte}..${newSegment.endByte}]');
-            await _runSegmentWorker(newSegment, onChunk);
-          }
         }
       } catch (e) {
         if (_isPaused || _isCancelled) return;
