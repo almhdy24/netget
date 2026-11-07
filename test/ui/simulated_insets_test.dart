@@ -36,8 +36,8 @@ void main() {
     await manager.init();
   });
 
-  testWidgets('Physical Inset Test: 3-Button Navigation (48dp) prevents FAB & card overlap', (tester) async {
-    // Configure physical dimensions: 1080x2400 @ 3x (360x800 logical dp)
+  testWidgets('Simulated Inset Test: 3-Button Navigation (48dp) prevents FAB & card overlap', (tester) async {
+    // Configure simulated screen dimensions: 1080x2400 @ 3x (360x800 logical dp)
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;
     // Android 15 3-button navigation: 48dp bottom bar, 48dp top status bar
@@ -84,7 +84,7 @@ void main() {
     tester.view.resetViewPadding();
   });
 
-  testWidgets('Physical Inset Test: AddDownloadSheet pads for 3-button nav and moves above keyboard', (tester) async {
+  testWidgets('Simulated Inset Test: AddDownloadSheet pads for 3-button nav and moves above keyboard', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;
     // 3-button navigation (48dp bottom)
@@ -139,7 +139,7 @@ void main() {
     tester.view.resetPhysicalSize();
   });
 
-  testWidgets('Physical Inset Test: DownloadDetailsScreen standalone pads bottom content', (tester) async {
+  testWidgets('Simulated Inset Test: DownloadDetailsScreen standalone pads bottom content', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;
     tester.view.padding = const FakeViewPadding(top: 144, bottom: 144, left: 0, right: 0);
