@@ -112,6 +112,43 @@ class DownloadManager extends ChangeNotifier {
     NetGetConstants.defaultQueueName: true,
   };
   final Map<String, Timer> _networkRetryTimers = {};
+  final Map<String, ValueNotifier<DownloadTask>> _taskNotifiers = {};
+
+  /// Retrieves a task-specific ValueNotifier to enable granular widget rebuilding without rebuilding the entire list.
+  ValueNotifier<DownloadTask> getTaskNotifier(String taskId) {
+    final idx = _tasks.indexWhere((t) => t.id == taskId);
+    if (idx >= 0) {
+      final task = _tasks[idx];
+      final notifier = _taskNotifiers[taskId];
+      if (notifier != null) {
+        if (notifier.value != task) {
+          notifier.value = task;
+        }
+        return notifier;
+      }
+      return _taskNotifiers[taskId] = ValueNotifier<DownloadTask>(task);
+    }
+    return _taskNotifiers.putIfAbsent(
+      taskId,
+      () => ValueNotifier<DownloadTask>(
+        DownloadTask(
+          id: taskId,
+          url: '',
+          fileName: '',
+          savePath: '',
+          status: DownloadStatus.queued,
+          createdAt: DateTime.now(),
+        ),
+      ),
+    );
+  }
+
+  void _notifyTaskChanged(String taskId, DownloadTask updated) {
+    final notifier = _taskNotifiers[taskId];
+    if (notifier != null && notifier.value != updated) {
+      notifier.value = updated;
+    }
+  }
 
   /// Default connections setting (default 1 preserves legacy single-stream behavior;
   /// multi-connection engine is activated when connections > 1 and server supports ranges).
@@ -805,6 +842,7 @@ class DownloadManager extends ChangeNotifier {
     _taskLogs.remove(id);
     _taskSpeedSamples.remove(id);
     _taskElapsedSeconds.remove(id);
+    _taskNotifiers.remove(id)?.dispose();
 
     await saveImmediate();
     notifyListeners();
@@ -969,6 +1007,10 @@ class DownloadManager extends ChangeNotifier {
       t.cancel();
     }
     _networkRetryTimers.clear();
+    for (final n in _taskNotifiers.values) {
+      n.dispose();
+    }
+    _taskNotifiers.clear();
     _nativeEventSubscription?.cancel();
     _nativeEventSubscription = null;
     if (_reportedActiveCount > 0) {
@@ -1115,9 +1157,9 @@ class DownloadManager extends ChangeNotifier {
                 totalBytes: total > 0 ? total : _tasks[idx].totalBytes,
                 speedBytesPerSec: speed,
                 elapsedSeconds: currentElapsed,
-                // Segment offsets in task state are strictly updated via flushed onCheckpoint
               );
-              notifyListeners();
+              _notifyTaskChanged(taskId, _tasks[idx]);
+              _syncActiveDownloadsToNative();
               scheduleThrottledSave();
             }
           },
@@ -1465,7 +1507,8 @@ class DownloadManager extends ChangeNotifier {
                 elapsedSeconds: currentElapsed,
                 segments: segments,
               );
-              notifyListeners();
+              _notifyTaskChanged(taskId, _tasks[idx]);
+              _syncActiveDownloadsToNative();
               scheduleThrottledSave();
             }
           }

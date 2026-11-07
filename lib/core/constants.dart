@@ -70,8 +70,8 @@ class NetGetConstants {
   static const String appSubtitle = 'NetGet Download Manager';
   static const String userAgent = 'NetGet/1.0 (Android; en-US)';
 
-  /// Default connections per download
-  static const int defaultConnections = 4;
+  /// Default connections per download (default 1 preserves single stream; multi-connection is beta)
+  static const int defaultConnections = 1;
   static const int minConnections = 1;
   static const int maxConnections = 16;
 

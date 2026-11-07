@@ -175,29 +175,61 @@ class _HomeScreenState extends State<HomeScreen> {
       }).toList();
     }
 
-    // Sort safely on cloned list
-    switch (_sortOption) {
-      case _SortOption.dateDesc:
-        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        break;
-      case _SortOption.dateAsc:
-        list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-        break;
-      case _SortOption.nameAsc:
-        list.sort(
-          (a, b) =>
-              a.fileName.toLowerCase().compareTo(b.fileName.toLowerCase()),
-        );
-        break;
-      case _SortOption.sizeDesc:
-        list.sort((a, b) => b.totalBytes.compareTo(a.totalBytes));
-        break;
-      case _SortOption.speedDesc:
-        list.sort((a, b) => b.speedBytesPerSec.compareTo(a.speedBytesPerSec));
-        break;
+    void sortList(List<DownloadTask> sub) {
+      switch (_sortOption) {
+        case _SortOption.dateDesc:
+          sub.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          break;
+        case _SortOption.dateAsc:
+          sub.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          break;
+        case _SortOption.nameAsc:
+          sub.sort(
+            (a, b) =>
+                a.fileName.toLowerCase().compareTo(b.fileName.toLowerCase()),
+          );
+          break;
+        case _SortOption.sizeDesc:
+          sub.sort((a, b) => b.totalBytes.compareTo(a.totalBytes));
+          break;
+        case _SortOption.speedDesc:
+          sub.sort((a, b) => b.speedBytesPerSec.compareTo(a.speedBytesPerSec));
+          break;
+      }
     }
 
-    return list;
+    // Partition tasks according to UX specification:
+    // 1. Active downloads first
+    // 2. Queued / Paused
+    // 3. Failed
+    // 4. Completed
+    final active = list
+        .where((t) => t.status == DownloadStatus.downloading)
+        .toList();
+    final queuedOrPaused = list
+        .where(
+          (t) =>
+              t.status == DownloadStatus.queued ||
+              t.status == DownloadStatus.paused,
+        )
+        .toList();
+    final failed = list
+        .where(
+          (t) =>
+              t.status == DownloadStatus.failed ||
+              t.status == DownloadStatus.cancelled,
+        )
+        .toList();
+    final completed = list
+        .where((t) => t.status == DownloadStatus.completed)
+        .toList();
+
+    sortList(active);
+    sortList(queuedOrPaused);
+    sortList(failed);
+    sortList(completed);
+
+    return [...active, ...queuedOrPaused, ...failed, ...completed];
   }
 
   void _toggleSelectAll(List<DownloadTask> visibleTasks) {
@@ -375,27 +407,48 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _bulkDelete() async {
     final count = _selectedTaskIds.length;
+    bool alsoDeleteFiles = false;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Downloads'),
-        content: Text('Remove $count selected downloads from the list?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Delete Downloads'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Remove $count selected downloads from NDM?'),
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: alsoDeleteFiles,
+                title: const Text(
+                  'Also delete files from storage',
+                  style: TextStyle(fontSize: 13),
+                ),
+                onChanged: (val) {
+                  setDialogState(() => alsoDeleteFiles = val ?? false);
+                },
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
       ),
     );
 
     if (confirmed == true) {
       for (final id in _selectedTaskIds.toList()) {
-        await widget.manager.deleteTask(id, deleteFile: false);
+        await widget.manager.deleteTask(id, deleteFile: alsoDeleteFiles);
       }
       setState(() {
         _selectedTaskIds.clear();
@@ -1093,47 +1146,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // Download List or Empty State
-          if (filteredTasks.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.paddingOf(context).bottom + 24,
-                ),
-                child: _buildEmptyState(),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: EdgeInsets.only(
-                top: 4,
-                bottom: MediaQuery.paddingOf(context).bottom +
-                    (_isSelectionMode ? 24 : 96),
-              ),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  final task = filteredTasks[index];
-                  return DownloadCard(
-                    key: ValueKey(task.id),
-                    task: task,
-                    manager: widget.manager,
-                    isDense: _isDense,
-                    isSelected: _selectedTaskIds.contains(task.id),
-                    isSelectionMode: _isSelectionMode,
-                    onSelectChanged: (sel) {
-                      setState(() {
-                        if (sel) {
-                          _selectedTaskIds.add(task.id);
-                        } else {
-                          _selectedTaskIds.remove(task.id);
-                        }
-                      });
-                    },
-                  );
-                }, childCount: filteredTasks.length),
-              ),
-            ),
+          ..._buildSectionedSlivers(context, filteredTasks),
         ],
       ),
     );
@@ -1156,6 +1169,145 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildSectionHeader({
+    required BuildContext context,
+    required String title,
+    required int count,
+    required IconData icon,
+    required Color color,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Text(
+            '$title ($count)',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white70 : Colors.black87,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Divider(
+              color: isDark ? const Color(0xFF2C323B) : const Color(0xFFE2E6EC),
+              thickness: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildSectionedSlivers(
+    BuildContext context,
+    List<DownloadTask> filteredTasks,
+  ) {
+    if (filteredTasks.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.paddingOf(context).bottom + 24,
+            ),
+            child: _buildEmptyState(),
+          ),
+        ),
+      ];
+    }
+
+    final active = filteredTasks
+        .where((t) => t.status == DownloadStatus.downloading)
+        .toList();
+    final queuedOrPaused = filteredTasks
+        .where(
+          (t) =>
+              t.status == DownloadStatus.queued ||
+              t.status == DownloadStatus.paused,
+        )
+        .toList();
+    final failed = filteredTasks
+        .where(
+          (t) =>
+              t.status == DownloadStatus.failed ||
+              t.status == DownloadStatus.cancelled,
+        )
+        .toList();
+    final completed = filteredTasks
+        .where((t) => t.status == DownloadStatus.completed)
+        .toList();
+
+    final slivers = <Widget>[];
+
+    void addSection(
+      String title,
+      int count,
+      IconData icon,
+      Color color,
+      List<DownloadTask> tasks,
+    ) {
+      if (tasks.isEmpty) return;
+      slivers.add(
+        SliverToBoxAdapter(
+          child: _buildSectionHeader(
+            context: context,
+            title: title,
+            count: count,
+            icon: icon,
+            color: color,
+          ),
+        ),
+      );
+      slivers.add(
+        SliverList(
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final task = tasks[index];
+            return DownloadCard(
+              key: ValueKey(task.id),
+              task: task,
+              manager: widget.manager,
+              isDense: _isDense,
+              isSelected: _selectedTaskIds.contains(task.id),
+              isSelectionMode: _isSelectionMode,
+              onSelectChanged: (sel) {
+                setState(() {
+                  if (sel) {
+                    _selectedTaskIds.add(task.id);
+                  } else {
+                    _selectedTaskIds.remove(task.id);
+                  }
+                });
+              },
+            );
+          }, childCount: tasks.length),
+        ),
+      );
+    }
+
+    addSection('Active', active.length, Icons.downloading_rounded, NetGetTheme.brandCyan, active);
+    addSection('Queued & Paused', queuedOrPaused.length, Icons.pause_circle_outline_rounded, NetGetTheme.warningAmber, queuedOrPaused);
+    addSection('Failed', failed.length, Icons.error_outline_rounded, NetGetTheme.errorRed, failed);
+    addSection('Completed', completed.length, Icons.check_circle_outline_rounded, NetGetTheme.brandGreen, completed);
+
+    slivers.add(
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: MediaQuery.paddingOf(context).bottom +
+              (_isSelectionMode ? 24 : 96),
+        ),
+      ),
+    );
+
+    return slivers;
+  }
+
   Widget _buildEmptyState() {
     switch (_selectedTab) {
       case _FilterTab.all:
@@ -1163,40 +1315,56 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.cloud_download_outlined,
           title: 'No Downloads Yet',
           message:
-              'Paste a URL in the bar above or tap "Add Link" to start downloading files.',
-          buttonText: 'Add New Download',
+              'Paste a URL in the bar above or tap "Add download" to start downloading files.',
+          buttonText: 'Add download',
           onButtonPressed: () => _showAddSheet(),
+          onPasteUrl: (url) => _showAddSheet(initialUrl: url),
         );
       case _FilterTab.active:
-        return const EmptyStateView(
+        return EmptyStateView(
           icon: Icons.check_circle_outline_rounded,
           title: 'No Active Downloads',
           message: 'All downloads have completed, or no transfers are running.',
+          buttonText: 'Add download',
+          onButtonPressed: () => _showAddSheet(),
+          onPasteUrl: (url) => _showAddSheet(initialUrl: url),
         );
       case _FilterTab.completed:
-        return const EmptyStateView(
+        return EmptyStateView(
           icon: Icons.folder_open_outlined,
           title: 'No Completed Downloads',
           message:
               'Finished downloads will appear here with 1-tap open and share.',
+          buttonText: 'Add download',
+          onButtonPressed: () => _showAddSheet(),
+          onPasteUrl: (url) => _showAddSheet(initialUrl: url),
         );
       case _FilterTab.queued:
-        return const EmptyStateView(
+        return EmptyStateView(
           icon: Icons.hourglass_empty_rounded,
           title: 'No Queued Downloads',
           message: 'Pending items waiting for bandwidth will show here.',
+          buttonText: 'Add download',
+          onButtonPressed: () => _showAddSheet(),
+          onPasteUrl: (url) => _showAddSheet(initialUrl: url),
         );
       case _FilterTab.paused:
-        return const EmptyStateView(
+        return EmptyStateView(
           icon: Icons.pause_circle_outline_rounded,
           title: 'No Paused Downloads',
           message: 'Paused items waiting to resume will show here.',
+          buttonText: 'Add download',
+          onButtonPressed: () => _showAddSheet(),
+          onPasteUrl: (url) => _showAddSheet(initialUrl: url),
         );
       case _FilterTab.failed:
-        return const EmptyStateView(
+        return EmptyStateView(
           icon: Icons.error_outline_rounded,
           title: 'No Failed Downloads',
           message: 'All downloads succeeded without error.',
+          buttonText: 'Add download',
+          onButtonPressed: () => _showAddSheet(),
+          onPasteUrl: (url) => _showAddSheet(initialUrl: url),
         );
     }
   }

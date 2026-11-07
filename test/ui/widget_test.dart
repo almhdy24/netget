@@ -81,7 +81,8 @@ void main() {
     await manager.init();
 
     await tester.pumpWidget(NetGetApp(manager: manager));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
 
     // Verify title and subtitle
     expect(find.text('NDM'), findsOneWidget);
@@ -136,7 +137,8 @@ void main() {
     await manager.init();
 
     await tester.pumpWidget(NetGetApp(manager: manager));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
 
     // Verify task is displayed
     expect(find.byType(DownloadCard), findsOneWidget);
@@ -167,7 +169,8 @@ void main() {
     await manager.init();
 
     await tester.pumpWidget(NetGetApp(manager: manager));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
 
     // Verify error is initially visible
     expect(find.text('Connection timed out'), findsOneWidget);
@@ -178,5 +181,96 @@ void main() {
 
     // Verify error is now completely gone from UI
     expect(find.text('Connection timed out'), findsNothing);
+  });
+
+  testWidgets('Empty state displays Add download button and paste chip', (
+    WidgetTester tester,
+  ) async {
+    final repository = TestDownloadRepository();
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
+    addTearDown(manager.dispose);
+    await manager.init();
+
+    await tester.pumpWidget(NetGetApp(manager: manager));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('No Downloads Yet'), findsOneWidget);
+    expect(find.text('Add download'), findsOneWidget);
+    expect(find.text('Paste from clipboard'), findsOneWidget);
+  });
+
+  testWidgets('Home screen groups and orders tasks: Active -> Queued/Paused -> Failed -> Completed with headers', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final repository = TestDownloadRepository();
+    final now = DateTime.now();
+    repository.tasks = [
+      DownloadTask(
+        id: 'done_1',
+        url: 'https://example.com/done.mp4',
+        fileName: 'done.mp4',
+        savePath: '/tmp/done.mp4',
+        status: DownloadStatus.completed,
+        createdAt: now.subtract(const Duration(minutes: 5)),
+      ),
+      DownloadTask(
+        id: 'fail_1',
+        url: 'https://example.com/fail.zip',
+        fileName: 'fail.zip',
+        savePath: '/tmp/fail.zip',
+        status: DownloadStatus.failed,
+        errorMessage: 'Connection timed out',
+        createdAt: now.subtract(const Duration(minutes: 10)),
+      ),
+      DownloadTask(
+        id: 'active_1',
+        url: 'https://example.com/active.iso',
+        fileName: 'active.iso',
+        savePath: '/tmp/active.iso',
+        status: DownloadStatus.downloading,
+        downloadedBytes: 100,
+        totalBytes: 500,
+        createdAt: now.subtract(const Duration(minutes: 20)),
+      ),
+      DownloadTask(
+        id: 'paused_1',
+        url: 'https://example.com/paused.tar',
+        fileName: 'paused.tar',
+        savePath: '/tmp/paused.tar',
+        status: DownloadStatus.paused,
+        createdAt: now.subtract(const Duration(minutes: 15)),
+      ),
+    ];
+
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
+    addTearDown(manager.dispose);
+    await manager.init();
+
+    await tester.pumpWidget(NetGetApp(manager: manager));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Verify section headers with counts are rendered
+    expect(find.text('Active (1)'), findsOneWidget);
+    expect(find.text('Queued & Paused (1)'), findsOneWidget);
+    expect(find.text('Failed (1)'), findsOneWidget);
+    expect(find.text('Completed (1)'), findsOneWidget);
+
+    // Verify cards are all displayed
+    expect(find.text('active.iso'), findsOneWidget);
+    expect(find.text('paused.tar'), findsOneWidget);
+    expect(find.text('fail.zip'), findsOneWidget);
+    expect(find.text('done.mp4'), findsOneWidget);
   });
 }

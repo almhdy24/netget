@@ -60,7 +60,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
   // Analysis state
   UrlAnalysisResult? _analysis;
   DownloadCategory _selectedCategory = DownloadCategory.other;
-  int _connections = NetGetConstants.defaultConnections;
+  int _connections = 1;
   DownloadTask? _duplicateTask;
   bool _allowDuplicateDownload = false;
 
@@ -456,6 +456,20 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                 errorText: _errorText,
               ),
             ),
+            if (_urlController.text.isEmpty) ...[
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ActionChip(
+                  avatar: const Icon(Icons.content_paste_rounded, size: 14),
+                  label: const Text(
+                    'Paste from clipboard',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  onPressed: _pasteFromClipboard,
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
 
             // File Name Input
@@ -588,63 +602,40 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
             ),
             const SizedBox(height: 12),
 
-            // Connections selector (1 to 16)
-            Row(
+            // Connections selector (1/2/4, default 1)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.hub_outlined, size: 18, color: Colors.grey),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Flexible(
-                            child: Text(
-                              'Connections per download:',
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(
-                                alpha: 0.12,
-                              ),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '$_connections parts',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                        ],
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Connections (multi-connection beta):',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      _connections == 1 ? '1 connection' : '$_connections connections',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
                       ),
-                      Slider(
-                        value: _connections.toDouble(),
-                        min: 1,
-                        max: 16,
-                        divisions: 15,
-                        label: '$_connections',
-                        onChanged: isResumable
-                            ? (val) =>
-                                  setState(() => _connections = val.round())
-                            : null,
-                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<int>(
+                    segments: const [
+                      ButtonSegment(value: 1, label: Text('1 (Standard)')),
+                      ButtonSegment(value: 2, label: Text('2 (Beta)')),
+                      ButtonSegment(value: 4, label: Text('4 (Beta)')),
                     ],
+                    selected: {_connections},
+                    onSelectionChanged: isResumable
+                        ? (sel) => setState(() => _connections = sel.first)
+                        : null,
                   ),
                 ),
               ],

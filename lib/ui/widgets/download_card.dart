@@ -307,22 +307,46 @@ class DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (isDense) {
-      return _buildDenseRow(context);
-    }
-    return _buildCard(context);
+    return ValueListenableBuilder<DownloadTask>(
+      valueListenable: manager.getTaskNotifier(task.id),
+      builder: (context, currentTask, _) {
+        final content = isDense
+            ? _buildDenseRow(context, currentTask)
+            : _buildCard(context, currentTask);
+
+        return Dismissible(
+          key: ValueKey('dismiss_${currentTask.id}'),
+          direction: DismissDirection.endToStart,
+          confirmDismiss: (direction) => _confirmDelete(context),
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.error,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          child: content,
+        );
+      },
+    );
   }
 
   // --- DENSE TABLE-LIKE LIST ROW (48 dp minimum touch target) ---
-  Widget _buildDenseRow(BuildContext context) {
+  Widget _buildDenseRow(BuildContext context, DownloadTask currentTask) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final statusColor = _getStatusColor(task.status);
-    final fileIcon = NetGetUtils.getFileTypeIcon(task.fileName);
+    final statusColor = _getStatusColor(currentTask.status);
+    final fileIcon = NetGetUtils.getFileTypeIcon(currentTask.fileName);
 
-    final progressVal = task.status.isCompleted
+    final progressVal = currentTask.status.isCompleted
         ? 1.0
-        : (task.totalBytes > 0 ? (task.progress ?? 0.0) : null);
+        : (currentTask.totalBytes > 0 ? (currentTask.progress ?? 0.0) : null);
 
     return InkWell(
       onTap: () {
@@ -469,13 +493,13 @@ class DownloadCard extends StatelessWidget {
   }
 
   // --- STANDARD CARD VIEW ---
-  Widget _buildCard(BuildContext context) {
+  Widget _buildCard(BuildContext context, DownloadTask currentTask) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final statusColor = _getStatusColor(task.status);
-    final fileIcon = NetGetUtils.getFileTypeIcon(task.fileName);
-    final uri = Uri.tryParse(task.url);
+    final statusColor = _getStatusColor(currentTask.status);
+    final fileIcon = NetGetUtils.getFileTypeIcon(currentTask.fileName);
+    final uri = Uri.tryParse(currentTask.url);
     final host = uri?.host ?? '';
 
     return Card(
@@ -535,8 +559,8 @@ class DownloadCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          task.fileName,
-                          maxLines: 1,
+                          currentTask.fileName,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
@@ -613,8 +637,8 @@ class DownloadCard extends StatelessWidget {
 
               const SizedBox(height: 10),
 
-              // Action button bar
-              _buildActionBar(context),
+              // Action button bar (single primary action)
+              _buildActionBar(context, currentTask),
             ],
           ),
         ),
@@ -784,74 +808,52 @@ class DownloadCard extends StatelessWidget {
     );
   }
 
-  Widget _buildActionBar(BuildContext context) {
+  Widget _buildActionBar(BuildContext context, DownloadTask currentTask) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        if (task.status.isActive) ...[
-          if (task.status == DownloadStatus.downloading)
-            _buildIconButton(
-              icon: Icons.pause_rounded,
-              tooltip: 'Pause',
-              color: const Color(0xFFF57C00),
-              onPressed: () => manager.pauseDownload(task.id),
-            ),
-          _buildIconButton(
-            icon: Icons.close_rounded,
-            tooltip: 'Cancel',
-            color: Colors.grey,
-            onPressed: () => manager.cancelDownload(task.id),
-          ),
-        ] else if (task.status.isPaused) ...[
-          _buildIconButton(
-            icon: Icons.play_arrow_rounded,
-            tooltip: 'Resume',
-            color: Theme.of(context).colorScheme.primary,
-            onPressed: () => manager.resumeDownload(task.id),
-          ),
-          _buildIconButton(
-            icon: Icons.delete_outline_rounded,
-            tooltip: 'Delete',
-            color: Colors.grey,
-            onPressed: () => _confirmDelete(context),
-          ),
-        ] else if (task.status.isFailed || task.status.isCancelled) ...[
+        if (currentTask.status == DownloadStatus.downloading)
           FilledButton.tonalIcon(
-            onPressed: () => manager.retryDownload(task.id),
+            onPressed: () => manager.pauseDownload(currentTask.id),
+            icon: const Icon(Icons.pause_rounded, size: 16),
+            label: const Text('Pause'),
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+            ),
+          )
+        else if (currentTask.status == DownloadStatus.paused ||
+            currentTask.status == DownloadStatus.queued)
+          FilledButton.tonalIcon(
+            onPressed: () => manager.resumeDownload(currentTask.id),
+            icon: const Icon(Icons.play_arrow_rounded, size: 16),
+            label: const Text('Resume'),
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+            ),
+          )
+        else if (currentTask.status.isFailed ||
+            currentTask.status == DownloadStatus.cancelled)
+          FilledButton.tonalIcon(
+            onPressed: () => manager.retryDownload(currentTask.id),
             icon: const Icon(Icons.refresh_rounded, size: 16),
             label: const Text('Retry'),
             style: FilledButton.styleFrom(
               visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+            ),
+          )
+        else if (currentTask.status.isCompleted)
+          FilledButton.tonalIcon(
+            onPressed: () => _openFile(context),
+            icon: const Icon(Icons.folder_open_rounded, size: 16),
+            label: const Text('Open'),
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
             ),
           ),
-          const SizedBox(width: 8),
-          _buildIconButton(
-            icon: Icons.delete_outline_rounded,
-            tooltip: 'Delete',
-            color: Colors.grey,
-            onPressed: () => _confirmDelete(context),
-          ),
-        ] else if (task.status.isCompleted) ...[
-          _buildIconButton(
-            icon: Icons.folder_open_rounded,
-            tooltip: 'Open File',
-            color: Theme.of(context).colorScheme.primary,
-            onPressed: () => _openFile(context),
-          ),
-          _buildIconButton(
-            icon: Icons.share_rounded,
-            tooltip: 'Share',
-            color: Theme.of(context).colorScheme.secondary,
-            onPressed: () => _shareFile(context),
-          ),
-          _buildIconButton(
-            icon: Icons.delete_outline_rounded,
-            tooltip: 'Delete',
-            color: Colors.grey,
-            onPressed: () => _confirmDelete(context),
-          ),
-        ],
       ],
     );
   }
@@ -935,11 +937,11 @@ class DownloadCard extends StatelessWidget {
     }
   }
 
-  Future<void> _confirmDelete(BuildContext context) async {
+  Future<bool> _confirmDelete(BuildContext context) async {
     bool alsoDeleteFile = true;
     final fileExists = await File(task.savePath).exists();
 
-    if (!context.mounted) return;
+    if (!context.mounted) return false;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -993,7 +995,9 @@ class DownloadCard extends StatelessWidget {
         task.id,
         deleteFile: alsoDeleteFile && fileExists,
       );
+      return true;
     }
+    return false;
   }
 
   Color _getStatusColor(DownloadStatus status) {
