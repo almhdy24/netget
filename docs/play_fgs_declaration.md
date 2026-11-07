@@ -22,7 +22,8 @@ This document provides factual answers for the Google Play Console **Foreground 
 - Large file downloads (operating system images, media files, archives, documents) frequently require several minutes to hours to transfer over variable mobile/Wi-Fi connections.
 - If the transfer were interrupted when the user switches to another app, receives a phone call, or turns off the device screen, the download would terminate, wasting substantial mobile network bandwidth and requiring re-downloading.
 - The foreground service displays an ongoing, persistent notification in the Android notification drawer showing:
-  - The number of active downloads.
+  - Real-time progress bar (`setProgress`) showing overall download percentage.
+  - Active download count and percentage (or specific file name and percentage when downloading a single file).
   - Total real-time transfer speed.
 - The foreground service is stopped immediately (`stopForeground(STOP_FOREGROUND_REMOVE)` and `stopSelf()`) as soon as the active download count reaches zero ($N \to 0$ in [`android/app/src/main/kotlin/com/elmahdi/netget/DownloadService.kt:211-218`](file:///data/data/com.termux/files/home/projects/netget/android/app/src/main/kotlin/com/elmahdi/netget/DownloadService.kt#L211-L218)).
 

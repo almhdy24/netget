@@ -234,7 +234,7 @@ void main() {
 
         final failed = errorManager.tasks.firstWhere((t) => t.id == task.id);
         expect(failed.status, DownloadStatus.failed);
-        expect(failed.errorMessage, contains('Connection refused'));
+        expect(failed.errorMessage, 'Server refused connection');
       },
     );
 

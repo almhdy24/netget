@@ -2,6 +2,38 @@
 
 All notable changes to the NetGet project are documented in this file.
 
+## [1.0.0-rc2] - 2026-11-07
+
+### Added
+- **Failure UX & Localized Error Handling**:
+  - Centralized error taxonomy (`DownloadFailureCode` / `DownloadFailureHelper`) mapping failures to concise, human-readable localized messages: timeout, connection refused, host unreachable, network loss, HTTP 401/403/404, file changed on server, and storage full (`ENOSPC`).
+  - Raw exception text and stack traces preserved solely in detailed task history logs; UI cards display clean user guidance and a prominent "Retry" button.
+  - Automatic retry when network is lost with visible "waiting for network" status and background connectivity monitoring.
+- **In-Context Notification Permission Flow (Android 13+ `POST_NOTIFICATIONS`)**:
+  - Permission is requested contextually on the user's first download initiation rather than at application cold start.
+  - Explanatory bottom sheet presented prior to the system permission dialog.
+  - Dismissible Home banner fallback when permission is denied, with direct navigation to system notification settings, strictly throttled to at most once per user session.
+- **Native Notification Progress Bar & Status Notifications**:
+  - Native ongoing foreground notification displaying a real progress bar (`setProgress`), title "NDM", and dynamic content: single downloads show `<filename> - X%` with transfer speed; multiple downloads show aggregate `N downloads - X%`.
+  - Progress updates throttled to at most once per second with silent ongoing updates (`setOnlyAlertOnce(true)`).
+  - Separate completion and failure notifications posted to a dedicated default channel with tap-to-open actions.
+- **Home & Details UX Overhaul**:
+  - Sectioned task ordering: Active -> Queued & Paused -> Failed -> Completed with explicit count badges.
+  - Simplified cards: 2-line title ellipsis, primary action button per status (Pause / Resume / Retry / Open), with secondary actions accessible via swipe-to-dismiss or long-press bottom sheet.
+  - Swipe-to-delete with modal confirmation offering "Also delete file from storage".
+  - Empty state with on-tap clipboard paste suggestion chip.
+  - Add Download sheet with auto-paste suggestion, detected file name and size via HEAD probe, and segmented connection selector (1, 2, 4 streams; default 1).
+  - High-performance, zero-jank UI updates: per-task `ValueNotifier<DownloadTask>` handles ensure high-frequency progress ticks rebuild only the active card rather than the entire dashboard.
+
+### Fixed
+- **Stale Error Bug**:
+  - Resolved stale error persistence bug across retries, resumes, and new download runs.
+  - Implemented explicit `clearError: true` flag in `DownloadTask.copyWith` to guarantee `errorMessage`, `failureCode`, and `errorDetails` are completely erased in memory, on UI cards, and in `netget_tasks.json`.
+
+### Changed
+- Display branding renamed to **NDM** (short) and **NetGet Download Manager** (full) across Android application labels, AppBars, About dialog, and localized strings (`en`, `ar`), while keeping package name (`com.elmahdi.netget`), file paths, and platform channel identifiers intact.
+- Version bumped to `1.0.0-rc2+2`.
+
 ## [1.0.0-rc1] - 2026-11-07
 
 ### Added

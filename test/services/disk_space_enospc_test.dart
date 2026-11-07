@@ -175,7 +175,7 @@ void main() {
     // Verify DownloadManager._cleanErrorMessage converts it to user-friendly message
     final diskError = DiskSpaceException('No space left on device');
     final cleanedMsg = manager.cleanErrorMessageForTesting(diskError);
-    expect(cleanedMsg, contains('Disk is full. Please free up storage space'));
+    expect(cleanedMsg, 'Storage is full');
 
     manager.dispose();
   });

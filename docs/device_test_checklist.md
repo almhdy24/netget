@@ -53,36 +53,81 @@ This document details the manual verification procedures required on physical An
 
 ---
 
-### (c) Airplane Mode & Network Flapping
-- **Objective**: Verify network disconnection handling and recovery.
+### (c) Network Disconnection, Failure UX & Retry Flow
+- **Objective**: Verify network disconnection handling, failure mapping, auto-retry, and manual retry without stale errors.
 - **Steps**:
   1. Start an active download.
-  2. Enable Airplane mode in Android Quick Settings.
-  3. Wait 10 seconds.
-  4. Disable Airplane mode (reconnect to Wi-Fi/Cellular).
+  2. Enable Airplane mode in Android Quick Settings or disconnect Wi-Fi/mobile data.
+  3. Wait 5-10 seconds.
+  4. Inspect the task card:
+     - Verify it transitions to a waiting/failure state showing a clear, localized reason (e.g. "No internet connection" / "Network disconnected") rather than raw socket exception stack traces.
+     - Raw error details remain accessible strictly inside task details history log.
+  5. If auto-retry is active, restore connection; verify the download resumes automatically.
+  6. Alternatively, trigger a failed state (e.g., test URL timing out). Tap the **Retry** button on the card:
+     - Task transitions to downloading/queued.
+     - Verify that the card and details screen immediately clear all previous error messages and badges.
+     - Verify `netget_tasks.json` has `errorMessage: null` and `failureCode: null` for the retrying task.
 - **Expected Result**:
-  - Active download encounters network socket interruption and cleanly transitions to "Paused" or "Failed" with localized error "Network connection unavailable".
-  - Tapping **Resume** after connectivity returns resumes the download cleanly without deadlocks.
+  - No raw stack traces shown on home cards.
+  - Tapping **Retry** clears previous errors completely.
+  - Resumed/retried download completes cleanly with matching SHA-256.
 
 ---
 
-### (d) Notification Permission Denied (`POST_NOTIFICATIONS`)
-- **Objective**: Verify that denying notification permission on Android 13+ (API 33+) does not crash or block downloads.
+### (d) In-Context Notification Permission (`POST_NOTIFICATIONS`) Flow (Android 13+)
+- **Objective**: Verify that notification permission is requested in context on the first download, with appropriate fallback banners and deep links.
 - **Steps**:
-  1. On Android 13+, revoke notification permission:
+  1. Fresh install or revoke notification permission via ADB:
      ```bash
      adb shell pm revoke com.elmahdi.netget android.permission.POST_NOTIFICATIONS
      ```
-  2. Open NetGet and start a download.
-  3. Swipe app to background.
+  2. Open NDM. Confirm no notification prompt appears on launch (app launch must never nag).
+  3. Tap **+** and start the first download:
+     - An in-context bottom sheet appears explaining why notifications are needed: "Notifications show download progress and let downloads continue in the background".
+     - Tap **Continue**; the Android system `POST_NOTIFICATIONS` dialog appears.
+  4. **Subcase 1: User grants permission**:
+     - System dialog granted -> download starts with ongoing foreground progress notification.
+  5. **Subcase 2: User denies permission once**:
+     - Deny permission -> bottom sheet dismisses, download proceeds without crashing.
+     - Home screen displays a small dismissible info banner: "Enable notifications to see download progress in the background" with an **Enable** button.
+     - Dismissing the banner hides it for the remainder of the session (no repeated nagging).
+     - Tapping **Enable** navigates directly to the app's system notification settings screen.
+  6. **Subcase 3: User permanently denies ("Don't ask again")**:
+     - Subsequent attempts or tapping the settings banner open Android system settings directly.
 - **Expected Result**:
-  - Native `DownloadService` starts without throwing unhandled `SecurityException`.
-  - Dart download continues transferring data at full speed.
-  - No notification appears in shade, but download finishes successfully.
+  - Permission is never requested on cold start; only in-context on the first download action.
+  - Downloads proceed normally regardless of permission state.
+  - No crash (`SecurityException`) occurs when permission is denied.
 
 ---
 
-### (e) Android 15 `dataSync` Timeout Handling
+### (e) Native Foreground Notification Progress Bar & Status Notifications
+- **Objective**: Verify native notification progress bar accuracy, throttling, and status alerts.
+- **Steps**:
+  1. Ensure notification permission is granted.
+  2. Start a single download:
+     - Check the Android notification drawer:
+       - Title displays **NDM**.
+       - Ongoing progress bar accurately reflects current progress (`setProgress(100, percent, false)`).
+       - Text shows `<file_name> - X%` alongside transfer speed.
+       - Progress updates are throttled (at most 1 update per second).
+       - Updates do not vibrate or make alert sounds (`setOnlyAlertOnce(true)`).
+       - Tap the notification: verifies it launches/resumes the main NDM activity.
+  3. Start a second concurrent download:
+     - Notification text updates to `N downloads - X%` showing aggregate progress.
+  4. Allow a download to complete:
+     - A dedicated completion notification appears on the default importance channel (`ndm_status_channel`).
+     - Tapping the completion notification opens the downloaded file or details.
+  5. Trigger a download failure:
+     - A failure notification is posted on the status channel.
+     - Tapping opens the task details screen.
+- **Expected Result**:
+  - Smooth progress bar without UI freezing or alert sound spam.
+  - Separate status channel used for completion/failure alerts.
+
+---
+
+### (f) Android 15 `dataSync` Timeout Handling
 - **Objective**: Verify graceful handling of Android 15's 6-hour cumulative foreground dataSync timeout.
 - **Steps**:
   1. On Android 15 (API 35+), simulate the FGS dataSync timeout via ADB without waiting 6 hours (*verify exact ADB flag in Android 15 developer preview docs*):
@@ -100,7 +145,7 @@ This document details the manual verification procedures required on physical An
 
 ---
 
-### (f) Insets & Edge-to-Edge Display (3-Button vs Gesture Navigation)
+### (g) Insets & Edge-to-Edge Display (3-Button vs Gesture Navigation)
 - **Objective**: Verify that bottom cards, FloatingActionButtons (FAB), and modal sheets do not overlap system bars.
 - **Steps**:
   1. Go to Android Settings -> System -> Navigation Mode.
@@ -115,7 +160,7 @@ This document details the manual verification procedures required on physical An
 
 ---
 
-### (g) Storage Full Behaviour (`ENOSPC`)
+### (h) Storage Full Behaviour (`ENOSPC`)
 - **Objective**: Verify clean error surfacing when device runs out of storage space.
 - **Steps**:
   1. Fill device internal storage or create a dummy file until remaining space is < 10 MB:

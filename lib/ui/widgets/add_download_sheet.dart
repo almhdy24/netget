@@ -609,10 +609,13 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Connections (multi-connection beta):',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                    const Expanded(
+                      child: Text(
+                        'Connections (multi-connection beta):',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
                       _connections == 1 ? '1 connection' : '$_connections connections',
                       style: TextStyle(

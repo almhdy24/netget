@@ -33,7 +33,7 @@ All application state is stored locally on the user's device and is never transm
 
 1. **Download Task State & Segment Checkpoints**:
    - Location: `<ApplicationDocumentsDirectory>/netget_tasks.json` ([`lib/data/download_repository.dart:20-55`](file:///data/data/com.termux/files/home/projects/netget/lib/data/download_repository.dart#L20-L55)).
-   - Data stored: Task identifier, source URL, file name, target file path, total bytes, downloaded bytes, status string, creation timestamp, completion timestamp, error messages, speed, elapsed seconds, category, ETag, Last-Modified, queue name, connection count, and segment range offsets.
+   - Data stored: Task identifier, source URL, file name, target file path, total bytes, downloaded bytes, status string, creation timestamp, completion timestamp, error messages, failure codes, speed, elapsed seconds, category, ETag, Last-Modified, queue name, connection count, and segment range offsets.
 2. **Downloaded File Payloads**:
    - Location: App-specific external storage directory:
      `/storage/emulated/0/Android/data/com.elmahdi.netget/files/Download/` (resolved via `getExternalStorageDirectories(type: StorageDirectory.downloads)` in [`lib/core/constants.dart:90-95`](file:///data/data/com.termux/files/home/projects/netget/lib/core/constants.dart#L90-L95)).

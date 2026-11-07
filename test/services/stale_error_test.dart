@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netget/data/download_repository.dart';
 import 'package:netget/models/download_status.dart';
