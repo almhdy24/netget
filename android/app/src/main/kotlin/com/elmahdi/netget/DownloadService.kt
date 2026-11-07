@@ -74,7 +74,7 @@ class DownloadService : Service() {
      * Android 15 (API 35) foreground service dataSync 6-hour timeout handling.
      * Persists all active transfers, stops foreground, and posts user resumable notification.
      */
-    fun onTimeout(startId: Int, fgsType: Int) {
+    override fun onTimeout(startId: Int, fgsType: Int) {
         // Persist all downloading tasks as paused
         activeTasks.values.forEach { worker ->
             worker.pause()
