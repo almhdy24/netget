@@ -152,6 +152,80 @@ void main() {
     expect(stopCalls.last.arguments['progressText'], equals(''));
   });
 
+  test('Background keep-alive: fake channel throwing PlatformException does not crash or abort downloads', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('com.elmahdi.netget/engine'),
+      (MethodCall call) async {
+        if (call.method == 'updateActiveDownloads') {
+          throw PlatformException(
+            code: 'FGS_NOT_ALLOWED',
+            message: 'ForegroundServiceStartNotAllowedException: cannot start FGS from background (verify in docs)',
+          );
+        }
+        return true;
+      },
+    );
+
+    final task = DownloadTask(
+      id: 'task_resilient_fgs',
+      url: 'https://example.com/resilient.iso',
+      fileName: 'resilient.iso',
+      savePath: '/tmp/resilient.iso',
+      status: DownloadStatus.downloading,
+      createdAt: simulatedNow,
+      speedBytesPerSec: 1048576,
+    );
+    repo.tasks.add(task);
+
+    // Initializing and notifying listeners with failing native channel must succeed without unhandled exception
+    await manager.init(forceReload: true);
+    manager.notifyListeners();
+    await pumpEventQueue();
+
+    expect(manager.tasks.first.status, equals(DownloadStatus.downloading));
+  });
+
+  test('Background keep-alive: full 0 -> N -> 0 lifecycle transition', () async {
+    await manager.init();
+    expect(channelCalls.where((c) => c.method == 'updateActiveDownloads'), isEmpty);
+
+    // 0 -> N transition (2 downloads)
+    final taskA = DownloadTask(
+      id: 'task_lifecycle_a',
+      url: 'https://example.com/a.bin',
+      fileName: 'a.bin',
+      savePath: '/tmp/a.bin',
+      status: DownloadStatus.downloading,
+      createdAt: simulatedNow,
+      speedBytesPerSec: 250000,
+    );
+    final taskB = DownloadTask(
+      id: 'task_lifecycle_b',
+      url: 'https://example.com/b.bin',
+      fileName: 'b.bin',
+      savePath: '/tmp/b.bin',
+      status: DownloadStatus.downloading,
+      createdAt: simulatedNow,
+      speedBytesPerSec: 250000,
+    );
+    repo.tasks.addAll([taskA, taskB]);
+    await manager.init(forceReload: true);
+
+    final toNCalls = channelCalls.where((c) => c.method == 'updateActiveDownloads').toList();
+    expect(toNCalls.isNotEmpty, isTrue);
+    expect(toNCalls.last.arguments['activeCount'], equals(2));
+
+    // N -> 0 transition
+    channelCalls.clear();
+    await manager.pauseAll();
+
+    final toZeroCalls = channelCalls.where((c) => c.method == 'updateActiveDownloads').toList();
+    expect(toZeroCalls.isNotEmpty, isTrue);
+    expect(toZeroCalls.last.arguments['activeCount'], equals(0));
+    expect(toZeroCalls.last.arguments['progressText'], equals(''));
+  });
+
   test('Background keep-alive: onTimeout event pauses all active downloads', () async {
     final task1 = DownloadTask(
       id: 'task_timeout_1',

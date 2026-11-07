@@ -259,7 +259,13 @@ class DownloadManager extends ChangeNotifier {
     if (Platform.isAndroid || isAndroidForTesting) {
       try {
         await _platform.invokeMethod(method, args);
-      } catch (_) {}
+      } on PlatformException catch (e) {
+        debugPrint('Native MethodChannel error ($method): ${e.code} - ${e.message}');
+        // ForegroundServiceStartNotAllowedException or permission denial: Dart engine
+        // logs warning and safely continues downloading without crashing or aborting.
+      } catch (e) {
+        debugPrint('Unexpected error calling native channel ($method): $e');
+      }
     }
   }
 

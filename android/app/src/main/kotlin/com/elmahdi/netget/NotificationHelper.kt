@@ -151,7 +151,11 @@ class NotificationHelper(private val context: Context) {
     }
 
     fun notifySummary(notificationId: Int, notification: Notification) {
-        notificationManager.notify(notificationId, notification)
+        try {
+            notificationManager.notify(notificationId, notification)
+        } catch (_: Exception) {
+            // Safe when POST_NOTIFICATIONS is denied on Android 13+ (verify in docs)
+        }
     }
 
     fun buildTaskProgressNotification(

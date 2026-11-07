@@ -195,26 +195,40 @@ class DownloadService : Service() {
             )
             if (!isForeground) {
                 // Foreground service type dataSync (verify in docs)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(
-                        NotificationHelper.SUMMARY_NOTIFICATION_ID,
-                        summary,
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    )
-                } else {
-                    startForeground(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        startForeground(
+                            NotificationHelper.SUMMARY_NOTIFICATION_ID,
+                            summary,
+                            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                        )
+                    } else {
+                        startForeground(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
+                    }
+                    isForeground = true
+                } catch (e: Exception) {
+                    // On Android 12+ (API 31+), ForegroundServiceStartNotAllowedException is thrown if started from background
+                    // On Android 13+ (API 33+), SecurityException if permission issues occur (verify in docs)
+                    isForeground = false
+                    throw e
                 }
-                isForeground = true
             } else {
-                notificationHelper.notifySummary(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
+                try {
+                    notificationHelper.notifySummary(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
+                } catch (_: Exception) {
+                    // If POST_NOTIFICATIONS is denied on Android 13+ (API 33+), notifySummary may fail
+                    // but the active foreground service continues without crashing (verify in docs).
+                }
             }
         } else if (isForeground) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
-            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+            } catch (_: Exception) {}
             isForeground = false
         }
     }

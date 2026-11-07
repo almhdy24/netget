@@ -120,10 +120,20 @@ class MainActivity : FlutterActivity() {
                     result.success(url)
                 }
                 "updateActiveDownloads" -> {
-                    val count = call.argument<Int>("activeCount") ?: 0
-                    val progressText = call.argument<String>("progressText") ?: ""
-                    downloadService?.updateDartActiveDownloads(count, progressText)
-                    result.success(true)
+                    try {
+                        val count = call.argument<Int>("activeCount") ?: 0
+                        val progressText = call.argument<String>("progressText") ?: ""
+                        downloadService?.updateDartActiveDownloads(count, progressText)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        // Catches ForegroundServiceStartNotAllowedException (Android 12+ / API 31+)
+                        // and any SecurityException or generic runtime error (verify in docs)
+                        result.error(
+                            "FGS_NOT_ALLOWED",
+                            "Foreground service update failed: ${e.message}",
+                            e.javaClass.name
+                        )
+                    }
                 }
                 "playSound" -> {
                     val sound = call.argument<String>("sound") ?: ""
