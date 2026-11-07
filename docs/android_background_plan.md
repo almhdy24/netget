@@ -17,12 +17,26 @@ When Android schedules a background download job via `JobService`, what componen
 
 | Evaluation Metric | Option A: Native Kotlin Engine | Option B: Headless Flutter Engine |
 | :--- | :--- | :--- |
-| **Process Memory Footprint (RSS)** | **~15 – 25 MB** (Extremely lightweight) | **~80 – 140 MB** (Heavy Flutter C++ runtime + Dart VM isolate) |
-| **Android LMK (Low Memory Killer) Risk** | **Very Low**: Small memory footprint makes process unlikely to be killed during background multitasking. | **High**: Under memory pressure (e.g., user launches camera or heavy 3D game), the 100MB+ Flutter process is a primary LMK target. |
-| **Job Startup Latency** | **< 15 ms**: Instant initialization inside `JobService.onStartJob()`. | **400 – 900 ms**: Must initialize `FlutterLoader`, load AOT assets, launch background isolate, establish channels. |
-| **Lifecycle & Termination Handling** | **Deterministic POSIX/Java handles**: `onStopJob()` synchronously closes sockets, flushes file descriptors, and persists state in milliseconds. | **Fragile async isolate teardown**: If system cancels job, Dart isolate may be terminated mid-event loop before completing asynchronous file flushes. |
-| **Code Duplication** | Requires maintaining network/file pipeline in Kotlin and UI in Dart. | Single codebase for engine (`MultiConnectionDownloader` in Dart). |
-| **Headless Battery Efficiency** | Zero UI runtime overhead; optimal CPU wakelock management. | Dart isolate overhead runs event loop continuously in background. |
+| **Process Memory Overhead** | Native thread pool and direct file descriptors; no additional virtual machine runtime. | Spawns a background Dart VM isolate and loads Flutter C++ engine runtime. |
+| **Android LMK (Low Memory Killer) Risk** | **Low**: Minimal memory overhead makes background execution resilient against aggressive OS process reclamation. | **Higher**: Larger background memory footprint increases priority for OS termination under memory pressure. |
+| **Job Startup Latency** | **Instant**: Starts directly inside `JobService.onStartJob()` via standard coroutines. | **Delayed**: Must load AOT engine assets and bootstrap background Dart isolate. |
+| **Lifecycle & Termination Handling** | **Deterministic**: `onStopJob()` immediately intercepts termination, aborts network sockets, flushes file descriptors, and saves checkpoints synchronously. | **Asynchronous isolate teardown**: If system cancels job abruptly, background isolate may be evicted before completing file flushes. |
+| **Code Duplication & Maintenance Cost** | **High**: Requires implementing and maintaining the full multi-connection download engine twice (Dart for interactive/foreground UI, Kotlin for background UIDT). | **None**: Single unified Dart engine (`MultiConnectionDownloader`). |
+| **Battery & CPU Efficiency** | Native event-driven sockets with optimal OS wakelock handling. | Continuous Dart event-loop execution in background. |
+
+### 1.1 The Engineering Cost of Engine Duplication (Option A)
+Adopting a native Kotlin engine for UIDT requires duplicating the full download architecture in native Android code:
+1. **Protocol & Engine Parity**:
+   - Parallel HTTP Range requests with non-overlapping byte chunk writes.
+   - Strict `If-Range` validation (strong ETags only, weak ETag `W/` rejection, `Last-Modified` fallback, clean restart on HTTP 200).
+   - HTTP 206 `Content-Range` start-offset boundary verification.
+   - 429/503 exponential backoff and `Retry-After` clamping (max 60s).
+   - Global per-host connection limiter (`HostConnectionPool`, default 6 connections per host).
+2. **Persistence & Concurrency**:
+   - Replicating `ConcurrentFileWriter` FIFO queue with serialized `RandomAccessFile` writes and authoritative `flush()` before saving segment checkpoints.
+   - Shared SQLite persistence (`netget_native.db`) with WAL mode and transactional integrity between Flutter and native Kotlin processes.
+3. **Double Testing Burden**:
+   - Maintaining mirrored test suites in Dart (`test/services/*`) and Kotlin (`androidTest` / JUnit) to guard against behavioral divergence.
 
 ### The Authoritative Decision
 **Option A (Kotlin Native Engine) is chosen for background execution.**  
