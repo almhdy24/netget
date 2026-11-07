@@ -96,6 +96,27 @@ class LinkProbeResult {
   });
 }
 
+typedef DiskSpaceChecker = Future<int> Function(String directoryPath);
+
+Future<int> defaultDiskSpaceChecker(String directoryPath) async {
+  try {
+    final result = await Process.run('df', ['-Pk', directoryPath]);
+    if (result.exitCode == 0) {
+      final lines = (result.stdout as String).trim().split('\n');
+      if (lines.length >= 2) {
+        final parts = lines[1].split(RegExp(r'\s+'));
+        if (parts.length >= 4) {
+          final availKb = int.tryParse(parts[3]);
+          if (availKb != null) {
+            return availKb * 1024;
+          }
+        }
+      }
+    }
+  } catch (_) {}
+  return -1;
+}
+
 /// Real Multi-Connection Parallel Range Download Engine.
 class MultiConnectionDownloader {
   final String id;
@@ -107,6 +128,7 @@ class MultiConnectionDownloader {
   final void Function(int downloadedBytes, int totalBytes, double speedBytesPerSec, List<DownloadSegment> segments)? onProgress;
   final Future<void> Function(List<DownloadSegment> segments)? onCheckpoint;
   final void Function(String level, String message)? onLog;
+  final DiskSpaceChecker? diskSpaceChecker;
 
   bool _isPaused = false;
   bool _isCancelled = false;
@@ -132,6 +154,7 @@ class MultiConnectionDownloader {
     this.onLog,
     this.etag,
     this.lastModified,
+    this.diskSpaceChecker,
     List<DownloadSegment>? initialSegments,
   }) {
     if (initialSegments != null && initialSegments.isNotEmpty) {
@@ -289,6 +312,18 @@ class MultiConnectionDownloader {
     }
 
     if (_isPaused || _isCancelled) return;
+
+    // Verify sufficient free disk space before allocating
+    if (totalBytes > 0) {
+      final checker = diskSpaceChecker ?? defaultDiskSpaceChecker;
+      final freeBytes = await checker(file.parent.path);
+      if (freeBytes >= 0 && freeBytes < totalBytes) {
+        throw FileSystemException(
+          'Insufficient disk space: need $totalBytes bytes, but only $freeBytes bytes available',
+          savePath,
+        );
+      }
+    }
 
     // Step 2: Open file and preallocate
     final raf = await file.open(mode: FileMode.append);

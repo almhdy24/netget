@@ -234,7 +234,10 @@ void main() {
     );
 
     final startFuture = downloader.start();
-    await Future.delayed(const Duration(milliseconds: 30));
+    // Wait until probe completes and segments are planned
+    while (downloader.segments.isEmpty) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
 
     // Manually trigger checkpoint
     final snapshot = await downloader.checkpoint();
@@ -315,5 +318,26 @@ void main() {
     // Initial plan should be clamped to maxConnectionsPerHost (4)
     expect(downloader.segments.length, greaterThanOrEqualTo(4));
     expect(downloader.maxConnectionsPerHost, equals(4));
+  });
+
+  test('Scenario 15: Insufficient disk space aborts download with FileSystemException before allocation', () async {
+    final saveFile = File('${tempDir.path}/test_disk_full.bin');
+    final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
+
+    final downloader = MultiConnectionDownloader(
+      id: 'test_15',
+      uri: uri,
+      savePath: saveFile.path,
+      connectionCount: 2,
+      clientFactory: () => HttpClient(),
+      // Mock disk space checker: only 512 bytes free on disk
+      diskSpaceChecker: (path) async => 512,
+    );
+
+    expect(
+      downloader.start(),
+      throwsA(predicate((e) => e is FileSystemException && e.message.contains('Insufficient disk space'))),
+    );
+    expect(await saveFile.exists(), isFalse, reason: 'File must not be created or truncated when disk space is insufficient');
   });
 }
