@@ -119,6 +119,12 @@ class MainActivity : FlutterActivity() {
                     pendingIntentUrl = null
                     result.success(url)
                 }
+                "updateActiveDownloads" -> {
+                    val count = call.argument<Int>("activeCount") ?: 0
+                    val progressText = call.argument<String>("progressText") ?: ""
+                    downloadService?.updateDartActiveDownloads(count, progressText)
+                    result.success(true)
+                }
                 "playSound" -> {
                     val sound = call.argument<String>("sound") ?: ""
                     downloadService?.notificationHelper?.playSound(sound)

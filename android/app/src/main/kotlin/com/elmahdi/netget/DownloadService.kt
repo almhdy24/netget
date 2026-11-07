@@ -70,17 +70,32 @@ class DownloadService : Service() {
         return START_STICKY
     }
 
+    // Active transfers reported from Dart DownloadManager
+    private var dartActiveCount: Int = 0
+    private var dartProgressText: String = ""
+
+    fun updateDartActiveDownloads(count: Int, progressText: String) {
+        dartActiveCount = count
+        dartProgressText = progressText
+        updateForegroundState()
+    }
+
     /**
-     * Android 15 (API 35) foreground service dataSync 6-hour timeout handling.
-     * Persists all active transfers, stops foreground, and posts user resumable notification.
+     * Android 15 (API 35) foreground service dataSync 6-hour timeout handling (verify in docs).
+     * Emits onTimeout event to Dart engine to pause active transfers,
+     * persists legacy tasks, stops foreground, and posts user notification.
      */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        // Persist all downloading tasks as paused
+        // Emit timeout event to Dart DownloadManager
+        onUpdateListener?.invoke(mapOf("event" to "onTimeout"))
+
+        // Legacy worker pause
         activeTasks.values.forEach { worker ->
             worker.pause()
             dbHelper.updateStatus(worker.taskId, "paused")
         }
         activeTasks.clear()
+        dartActiveCount = 0
 
         notificationHelper.notifyTimeout(NotificationHelper.SUMMARY_NOTIFICATION_ID)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -111,6 +126,14 @@ class DownloadService : Service() {
             connectivityManager?.registerNetworkCallback(request, networkCallback!!)
         } catch (_: Exception) {}
     }
+
+    // =========================================================================
+    // Legacy Native Download Workers (Unused)
+    // NOTE: Authoritative download execution is handled by the Dart
+    // MultiConnectionDownloader engine. The native methods below are retained
+    // untouched for fallback/backwards compatibility, but are not actively
+    // invoked by the Flutter application.
+    // =========================================================================
 
     fun startDownload(
         id: String,
@@ -155,24 +178,42 @@ class DownloadService : Service() {
     }
 
     private fun updateForegroundState() {
-        val runningCount = activeTasks.values.count { !it.isPaused.get() && !it.isCancelled.get() }
-        if (runningCount > 0) {
+        val legacyCount = activeTasks.values.count { !it.isPaused.get() && !it.isCancelled.get() }
+        val effectiveCount = legacyCount + dartActiveCount
+
+        if (effectiveCount > 0) {
             val totalSpeed = activeTasks.values.sumOf { it.currentSpeedBytesPerSec }
+            val progressText = if (dartProgressText.isNotEmpty()) {
+                dartProgressText
+            } else {
+                formatSpeed(totalSpeed)
+            }
             val summary = notificationHelper.buildSummaryNotification(
-                runningCount,
-                formatSpeed(totalSpeed),
+                effectiveCount,
+                progressText,
                 0
             )
             if (!isForeground) {
-                startForeground(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
+                // Foreground service type dataSync (verify in docs)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(
+                        NotificationHelper.SUMMARY_NOTIFICATION_ID,
+                        summary,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    )
+                } else {
+                    startForeground(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
+                }
                 isForeground = true
+            } else {
+                notificationHelper.notifySummary(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
             }
         } else if (isForeground) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_DETACH)
+                stopForeground(STOP_FOREGROUND_REMOVE)
             } else {
                 @Suppress("DEPRECATION")
-                stopForeground(false)
+                stopForeground(true)
             }
             isForeground = false
         }

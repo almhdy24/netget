@@ -119,6 +119,52 @@ class DownloadManager extends ChangeNotifier {
   Timer? _saveThrottleTimer;
   bool _hasPendingSave = false;
 
+  // Background keep-alive & native notification synchronization state
+  int _reportedActiveCount = 0;
+  DateTime _lastNativeProgressReport = DateTime.fromMillisecondsSinceEpoch(0);
+  StreamSubscription<dynamic>? _nativeEventSubscription;
+  bool isAndroidForTesting = false;
+  Stream<dynamic>? eventStreamForTesting;
+
+  /// Reports active download count and debounced progress summary to native foreground service.
+  void _syncActiveDownloadsToNative({bool force = false}) {
+    if (!Platform.isAndroid && !isAndroidForTesting) return;
+
+    final currentDownloadingCount =
+        _tasks.where((t) => t.status == DownloadStatus.downloading).length;
+    final now = clock();
+
+    // 0 <-> N transitions or active count changes are reported immediately
+    if (force || currentDownloadingCount != _reportedActiveCount) {
+      _reportedActiveCount = currentDownloadingCount;
+      _lastNativeProgressReport = now;
+      final speedText = currentDownloadingCount > 0
+          ? NetGetUtils.formatSpeed(currentTotalSpeed)
+          : '';
+      _invokeNative('updateActiveDownloads', {
+        'activeCount': currentDownloadingCount,
+        'progressText': speedText,
+      });
+    } else if (currentDownloadingCount > 0) {
+      // Progress text is throttled to at most once per second
+      final elapsedMs = now.difference(_lastNativeProgressReport).inMilliseconds;
+      if (elapsedMs >= 1000) {
+        _lastNativeProgressReport = now;
+        final speedText = NetGetUtils.formatSpeed(currentTotalSpeed);
+        _invokeNative('updateActiveDownloads', {
+          'activeCount': currentDownloadingCount,
+          'progressText': speedText,
+        });
+      }
+    }
+  }
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    _syncActiveDownloadsToNative();
+  }
+
   /// Throttled save: max 1 save per second across progress ticks.
   void scheduleThrottledSave() {
     final now = clock();
@@ -209,7 +255,7 @@ class DownloadManager extends ChangeNotifier {
     String method, [
     Map<String, dynamic>? args,
   ]) async {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || isAndroidForTesting) {
       try {
         await _platform.invokeMethod(method, args);
       } catch (_) {}
@@ -259,10 +305,17 @@ class DownloadManager extends ChangeNotifier {
   }
 
   void _initNativeBridge() {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || isAndroidForTesting) {
       try {
-        _eventChannel.receiveBroadcastStream().listen((dynamic event) {
+        _nativeEventSubscription?.cancel();
+        final stream = eventStreamForTesting ?? _eventChannel.receiveBroadcastStream();
+        _nativeEventSubscription = stream.listen((dynamic event) {
           if (event is Map) {
+            // Android 15 dataSync 6-hour timeout event: pause all downloads cleanly
+            if (event['event'] == 'onTimeout') {
+              pauseAll();
+              return;
+            }
             final taskId = event['taskId'] as String?;
             final downloaded = (event['downloadedBytes'] as num?)?.toInt();
             final speed = (event['speedBytesPerSec'] as num?)?.toDouble();
@@ -856,6 +909,15 @@ class DownloadManager extends ChangeNotifier {
   void dispose() {
     _schedulerTimer?.cancel();
     _saveThrottleTimer?.cancel();
+    _nativeEventSubscription?.cancel();
+    _nativeEventSubscription = null;
+    if (_reportedActiveCount > 0) {
+      _reportedActiveCount = 0;
+      _invokeNative('updateActiveDownloads', {
+        'activeCount': 0,
+        'progressText': '',
+      });
+    }
     super.dispose();
   }
 
