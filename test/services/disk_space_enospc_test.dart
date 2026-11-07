@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netget/data/download_repository.dart';
-import 'package:netget/models/download_status.dart';
 import 'package:netget/models/download_task.dart';
 import 'package:netget/services/download_manager.dart';
 import 'package:netget/services/multi_connection_downloader.dart';
@@ -61,7 +60,11 @@ class InMemoryTaskRepo implements DownloadRepository {
   @override
   Future<void> saveTask(DownloadTask task) async {
     final idx = tasks.indexWhere((t) => t.id == task.id);
-    if (idx >= 0) tasks[idx] = task; else tasks.add(task);
+    if (idx >= 0) {
+      tasks[idx] = task;
+    } else {
+      tasks.add(task);
+    }
   }
   @override
   Future<void> deleteTask(String id) async {
@@ -152,7 +155,6 @@ void main() {
     );
 
     // Replace multiDownloader writer with EnospcFailingWriter
-    final saveFile = File(task.savePath);
     final downloader = MultiConnectionDownloader(
       id: task.id,
       uri: Uri.parse(task.url),
