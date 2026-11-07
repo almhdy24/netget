@@ -165,6 +165,11 @@ class MultiConnectionDownloader {
       request.headers.set(HttpHeaders.userAgentHeader, _defaultUserAgent);
       request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+      if (etag != null) {
+        request.headers.set(HttpHeaders.ifRangeHeader, etag!);
+      } else if (lastModified != null) {
+        request.headers.set(HttpHeaders.ifRangeHeader, lastModified!);
+      }
 
       final response = await request.close();
       final statusCode = response.statusCode;
@@ -173,7 +178,7 @@ class MultiConnectionDownloader {
         return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
       }
 
-      if (statusCode >= 400 && statusCode != HttpStatus.requestedRangeNotSatisfiable) {
+      if (statusCode >= 400) {
         throw HttpException('Server returned HTTP $statusCode', uri: uri);
       }
 
@@ -348,9 +353,23 @@ class MultiConnectionDownloader {
         }
 
         if (statusCode == HttpStatus.requestedRangeNotSatisfiable) {
-          // Range 416: segment is already complete or out of bounds
+          if (totalBytes > 0 && startOffset < totalBytes) {
+            throw HttpException(
+              'HTTP 416 Range Not Satisfiable for range bytes=$startOffset-$endOffset (total: $totalBytes)',
+              uri: uri,
+            );
+          }
           segment.isCompleted = true;
           return;
+        }
+
+        if (statusCode == HttpStatus.ok) {
+          if (startOffset > 0) {
+            final reason = (etag != null || lastModified != null)
+                ? 'Server file changed (If-Range validator mismatch, received HTTP 200)'
+                : 'Server returned HTTP 200 OK for byte offset $startOffset (Range unsupported)';
+            throw HttpException(reason, uri: uri);
+          }
         }
 
         if (statusCode != HttpStatus.partialContent && statusCode != HttpStatus.ok) {

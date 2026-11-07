@@ -249,4 +249,28 @@ void main() {
     expect(checkpointCalledCount, equals(2), reason: 'Pause must also trigger checkpoint');
     expect(downloader.writer?.flushCount, greaterThanOrEqualTo(2));
   });
+
+  test('Scenario 12: Resume with If-Range validator mismatch returning HTTP 200 throws HttpException', () async {
+    final saveFile = File('${tempDir.path}/test_if_range_mismatch.bin');
+    // Mode no_range returns HTTP 200 OK to any request
+    final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download?mode=no_range');
+
+    final downloader = MultiConnectionDownloader(
+      id: 'test_12',
+      uri: uri,
+      savePath: saveFile.path,
+      connectionCount: 1,
+      etag: '"stale-etag-value"',
+      initialSegments: [
+        DownloadSegment(index: 0, startByte: 0, endByte: 500000, downloadedBytes: 250000),
+      ],
+      clientFactory: () => HttpClient(),
+    );
+
+    // Because startOffset > 0, receiving HTTP 200 must fail rather than corrupt file at offset 250000
+    expect(
+      downloader.start(),
+      throwsA(predicate((e) => e is HttpException && (e.message.contains('ETag mismatch') || e.message.contains('HTTP 200')))),
+    );
+  });
 }
