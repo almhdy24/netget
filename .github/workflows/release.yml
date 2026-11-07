@@ -95,7 +95,7 @@ jobs:
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$KEY_PASSWORD
           keyAlias=$KEY_ALIAS
-          storeFile=app/upload-keystore.jks
+          storeFile=upload-keystore.jks
           EOF
           echo "Release keystore verified and key.properties created."
 
@@ -126,6 +126,7 @@ jobs:
         run: |
           RAW_TAG="${{ inputs.tag || github.ref_name }}"
           TAG="${RAW_TAG#refs/tags/}"
+          TAG="${TAG//\//-}"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           mkdir -p dist
 
