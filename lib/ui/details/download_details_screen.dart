@@ -87,8 +87,10 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
         final progress = task.progress ?? 0.0;
         final percentage = task.progressPercentage ?? '--';
 
+        final bottomNavPadding =
+            widget.isPaneMode ? 0.0 : MediaQuery.paddingOf(context).bottom;
         final content = SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomNavPadding),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -144,13 +146,17 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
                                     isDark,
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    '${task.category.label} • Queue: ${task.queueName}',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: isDark
-                                          ? Colors.white54
-                                          : Colors.black54,
-                                      fontSize: 11,
+                                  Expanded(
+                                    child: Text(
+                                      '${task.category.label} • Queue: ${task.queueName}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: isDark
+                                            ? Colors.white54
+                                            : Colors.black54,
+                                        fontSize: 11,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -180,17 +186,22 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          '${NetGetUtils.formatBytes(task.downloadedBytes)} / '
-                          '${task.totalBytes > 0 ? NetGetUtils.formatBytes(task.totalBytes) : 'Unknown'} ($percentage)',
-                          style: NetGetUtils.tabularStyle(
-                            theme.textTheme.bodySmall?.copyWith(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                        Expanded(
+                          child: Text(
+                            '${NetGetUtils.formatBytes(task.downloadedBytes)} / '
+                            '${task.totalBytes > 0 ? NetGetUtils.formatBytes(task.totalBytes) : 'Unknown'} ($percentage)',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: NetGetUtils.tabularStyle(
+                              theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
-                        if (task.status == DownloadStatus.downloading)
+                        if (task.status == DownloadStatus.downloading) ...[
+                          const SizedBox(width: 8),
                           Text(
                             '${NetGetUtils.formatSpeed(task.speedBytesPerSec)} • ETA ${NetGetUtils.formatEta(task.etaSeconds)}',
                             style: NetGetUtils.tabularStyle(
@@ -201,6 +212,7 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
                               ),
                             ),
                           ),
+                        ],
                       ],
                     ),
                   ],
@@ -254,7 +266,9 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildSectionTitle('Event Log (${eventLog.length}/200)'),
+                  Expanded(
+                    child: _buildSectionTitle('Event Log (${eventLog.length}/200)'),
+                  ),
                   TextButton.icon(
                     onPressed: () {
                       final raw = eventLog

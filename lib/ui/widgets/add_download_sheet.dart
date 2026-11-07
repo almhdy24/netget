@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants.dart';
@@ -27,6 +28,7 @@ class AddDownloadSheet extends StatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => AddDownloadSheet(
         manager: manager,
@@ -275,7 +277,16 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomNavPadding = max(
+      mediaQuery.viewPadding.bottom,
+      mediaQuery.padding.bottom,
+    );
+    final keyboardInset = mediaQuery.viewInsets.bottom;
+    // Dynamic inset: when keyboard is shown, pad for keyboard; when hidden, pad for navigation bar
+    final effectiveBottomPadding = keyboardInset > 0
+        ? keyboardInset + 16.0
+        : bottomNavPadding + 20.0;
 
     final analysis = _analysis;
     final sizeStr = analysis != null && analysis.totalBytes > 0
@@ -285,11 +296,14 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
     final isResumable = analysis?.resumable ?? true;
 
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: mediaQuery.size.height * 0.88,
+      ),
       decoration: BoxDecoration(
         color: isDark ? NetGetTheme.brandNavy : Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      padding: EdgeInsets.fromLTRB(20, 14, 20, 20 + bottomInset),
+      padding: EdgeInsets.fromLTRB(20, 14, 20, effectiveBottomPadding),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -314,24 +328,31 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.add_link_rounded,
-                      color: theme.colorScheme.primary,
-                      size: 22,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Download File Info',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.add_link_rounded,
+                        color: theme.colorScheme.primary,
+                        size: 22,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Download File Info',
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                if (_isAnalyzing)
+                if (_isAnalyzing) ...[
+                  const SizedBox(width: 8),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       const SizedBox(
                         width: 14,
@@ -348,6 +369,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                       ),
                     ],
                   ),
+                ],
               ],
             ),
             const SizedBox(height: 14),
@@ -462,13 +484,18 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildMetaChip(
-                        context,
-                        label: 'Size',
-                        value: sizeStr,
-                        icon: Icons.data_usage_rounded,
+                      Flexible(
+                        child: _buildMetaChip(
+                          context,
+                          label: 'Size',
+                          value: sizeStr,
+                          icon: Icons.data_usage_rounded,
+                        ),
                       ),
-                      _buildResumeChip(context, isResumable),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: _buildResumeChip(context, isResumable),
+                      ),
                     ],
                   ),
                   const Divider(height: 16),
@@ -481,7 +508,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'Category & Subfolder:',
+                        'Category:',
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -493,6 +520,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                           child: DropdownButton<DownloadCategory>(
                             value: _selectedCategory,
                             isDense: true,
+                            isExpanded: true,
                             iconSize: 18,
                             items: DownloadCategory.values
                                 .where((c) => c != DownloadCategory.all)
@@ -500,6 +528,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                                   (cat) => DropdownMenuItem(
                                     value: cat,
                                     child: Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Icon(
                                           NetGetUtils.getCategoryIcon(cat),
@@ -507,9 +536,12 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                                           color: theme.colorScheme.primary,
                                         ),
                                         const SizedBox(width: 6),
-                                        Text(
-                                          cat.label,
-                                          style: const TextStyle(fontSize: 12),
+                                        Flexible(
+                                          child: Text(
+                                            cat.label,
+                                            style: const TextStyle(fontSize: 12),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -558,13 +590,17 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Connections per download:',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                          const Flexible(
+                            child: Text(
+                              'Connections per download:',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
+                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -605,44 +641,43 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
             ),
             const SizedBox(height: 16),
 
-            // Action Buttons: [Cancel] [Download later] [Start now]
+            // Action Buttons: [Download later] [Start now]
             Row(
               children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                const Spacer(),
-                OutlinedButton(
-                  onPressed: _isSubmitting
-                      ? null
-                      : () => _submit(startNow: false),
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => _submit(startNow: false),
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
+                    child: const Text('Download later'),
                   ),
-                  child: const Text('Download later'),
                 ),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: _isSubmitting
-                      ? null
-                      : () => _submit(startNow: true),
-                  icon: _isSubmitting
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.download_rounded, size: 18),
-                  label: const Text('Start now'),
-                  style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => _submit(startNow: true),
+                    icon: _isSubmitting
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.download_rounded, size: 18),
+                    label: const Text('Start now'),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                 ),
@@ -661,6 +696,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
     required IconData icon,
   }) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 16, color: Colors.grey),
         const SizedBox(width: 4),
@@ -668,12 +704,16 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
           '$label: ',
           style: const TextStyle(fontSize: 12, color: Colors.grey),
         ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'monospace',
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+            ),
           ),
         ),
       ],
@@ -702,12 +742,16 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
             color: color,
           ),
           const SizedBox(width: 4),
-          Text(
-            isResumable ? 'Resume Supported' : 'No Range / Single Stream',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: color,
+          Flexible(
+            child: Text(
+              isResumable ? 'Resume Supported' : 'No Range / Single Stream',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
             ),
           ),
         ],
