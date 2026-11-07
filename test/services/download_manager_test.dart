@@ -8,12 +8,14 @@ import 'package:netget/services/download_manager.dart';
 
 class MockDownloadRepository implements DownloadRepository {
   List<DownloadTask> inMemory = [];
+  int saveTasksCallCount = 0;
 
   @override
   Future<List<DownloadTask>> loadTasks() async => List.from(inMemory);
 
   @override
   Future<void> saveTasks(List<DownloadTask> tasks) async {
+    saveTasksCallCount++;
     inMemory = List.from(tasks);
   }
 
@@ -235,5 +237,54 @@ void main() {
         expect(failed.errorMessage, contains('Connection refused'));
       },
     );
+
+    test('1000 progress ticks produce <= 2 writes/sec with fake clock', () async {
+      final repo = MockDownloadRepository();
+      final testManager = DownloadManager(
+        repository: repo,
+        downloadsDirResolver: () async => tempDir,
+      );
+      await testManager.init();
+
+      // Reset save count after init
+      repo.saveTasksCallCount = 0;
+
+      var simulatedTime = DateTime(2026, 1, 1, 12, 0, 0);
+      testManager.clock = () => simulatedTime;
+
+      // Simulate 1000 progress ticks firing within 1 simulated second (1ms apart)
+      for (int i = 0; i < 1000; i++) {
+        simulatedTime = simulatedTime.add(const Duration(milliseconds: 1));
+        testManager.scheduleThrottledSave();
+      }
+
+      // Wait for trailing throttle timer
+      await Future.delayed(const Duration(milliseconds: 1100));
+
+      expect(
+        repo.saveTasksCallCount,
+        lessThanOrEqualTo(2),
+        reason: '1000 progress ticks within 1s must produce at most 2 disk writes',
+      );
+      testManager.dispose();
+    });
+
+    test('addDownload defaults to connectionCount 1 preserving single-stream path', () async {
+      final repo = MockDownloadRepository();
+      final testManager = DownloadManager(
+        repository: repo,
+        downloadsDirResolver: () async => tempDir,
+      );
+      await testManager.init();
+
+      final task = await testManager.addDownload(
+        url: 'https://example.com/test.zip',
+        startNow: false,
+      );
+
+      expect(task.connectionCount, equals(1));
+      expect(testManager.defaultConnections, equals(1));
+      testManager.dispose();
+    });
   });
 }

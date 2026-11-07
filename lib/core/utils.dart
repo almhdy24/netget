@@ -299,4 +299,14 @@ class NetGetUtils {
         return Icons.category_outlined;
     }
   }
+
+  /// Returns whether [etag] is a strong validator according to RFC 7232 § 2.3.
+  /// Weak ETags (starting with W/ or w/) cannot be used in If-Range requests.
+  static bool isStrongEtag(String? etag) {
+    if (etag == null) return false;
+    final trimmed = etag.trim();
+    if (trimmed.isEmpty) return false;
+    if (trimmed.startsWith('W/') || trimmed.startsWith('w/')) return false;
+    return true;
+  }
 }

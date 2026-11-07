@@ -59,11 +59,14 @@ class StatsSummaryCard extends StatelessWidget {
                     : theme.colorScheme.onSurface.withValues(alpha: 0.5),
               ),
               const SizedBox(width: 6),
-              Text(
-                'Transfer Monitor',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.2,
+              Flexible(
+                child: Text(
+                  'Transfer Monitor',
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
