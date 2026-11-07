@@ -60,3 +60,20 @@ All application state is stored locally on the user's device and is never transm
 | **Does your app collect or share user data?** | **No** | NetGet acts exclusively as a local client tool downloading files requested by the user. It does not collect or share any user data. |
 | **Is data encrypted in transit?** | **Yes** (when HTTPS is used) | HTTPS requests use TLS encryption handled by the platform `dart:io HttpClient`. Plain HTTP requests are supported for user-requested LAN/HTTP servers. |
 | **Can users request data deletion?** | **Yes** | Deleting a download in the app permanently deletes the metadata from `netget_tasks.json` and deletes the file from disk ([`lib/services/download_manager.dart:731-744`](file:///data/data/com.termux/files/home/projects/netget/lib/services/download_manager.dart#L731-L744)). |
+
+---
+
+## 6. Android Permissions & Receivers Audit
+
+Direct static inspection of [`android/app/src/main/AndroidManifest.xml:2-6`](file:///data/data/com.termux/files/home/projects/netget/android/app/src/main/AndroidManifest.xml#L2-L6) confirms the complete list of declared permissions:
+- `android.permission.INTERNET`
+- `android.permission.ACCESS_NETWORK_STATE`
+- `android.permission.FOREGROUND_SERVICE`
+- `android.permission.FOREGROUND_SERVICE_DATA_SYNC`
+- `android.permission.POST_NOTIFICATIONS`
+
+### Absence of `RECEIVE_BOOT_COMPLETED` & Broadcast Receivers:
+- `android.permission.RECEIVE_BOOT_COMPLETED` is **not** declared in `AndroidManifest.xml`.
+- Zero `<receiver>` components exist in `AndroidManifest.xml`.
+- Zero `BroadcastReceiver` implementations exist in Kotlin or Dart code.
+- NetGet does not automatically launch or trigger background network traffic on device reboot; task queues and schedules only execute when the application is launched by the user.
