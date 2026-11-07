@@ -108,6 +108,45 @@ class DownloadManager extends ChangeNotifier {
     NetGetConstants.defaultQueueName: true,
   };
 
+  DateTime Function() clock = DateTime.now;
+  DateTime _lastSaveTime = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _saveThrottleTimer;
+  bool _hasPendingSave = false;
+
+  /// Throttled save: max 1 save per second across progress ticks.
+  void scheduleThrottledSave() {
+    final now = clock();
+    final elapsedMs = now.difference(_lastSaveTime).inMilliseconds;
+    if (elapsedMs >= 1000) {
+      _saveThrottleTimer?.cancel();
+      _saveThrottleTimer = null;
+      _hasPendingSave = false;
+      _lastSaveTime = now;
+      _repository.saveTasks(_tasks);
+    } else {
+      _hasPendingSave = true;
+      if (_saveThrottleTimer == null || !_saveThrottleTimer!.isActive) {
+        final waitMs = 1000 - elapsedMs;
+        _saveThrottleTimer = Timer(Duration(milliseconds: waitMs), () {
+          if (_hasPendingSave) {
+            _hasPendingSave = false;
+            _lastSaveTime = clock();
+            _repository.saveTasks(_tasks);
+          }
+        });
+      }
+    }
+  }
+
+  /// Immediate save for lifecycle state transitions (pause, cancel, complete, delete, add).
+  Future<void> saveImmediate() async {
+    _saveThrottleTimer?.cancel();
+    _saveThrottleTimer = null;
+    _hasPendingSave = false;
+    _lastSaveTime = clock();
+    await _repository.saveTasks(_tasks);
+  }
+
   DownloadManager({
     required DownloadRepository repository,
     HttpClient Function()? clientFactory,
@@ -385,7 +424,7 @@ class DownloadManager extends ChangeNotifier {
     }
 
     _tasks.insert(0, task);
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     if (startNow) {
@@ -450,7 +489,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(taskId, 'INFO', 'Download URL refreshed: $newUrl');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
   }
 
@@ -487,7 +526,7 @@ class DownloadManager extends ChangeNotifier {
     _taskElapsedSeconds[taskId] = 0;
     logEvent(taskId, 'INFO', 'Restarted download from 0 B');
 
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
     _processQueue();
   }
@@ -549,7 +588,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(id, 'INFO', 'Download paused');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     _processQueue();
@@ -573,7 +612,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(id, 'INFO', 'Download queued for resume');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     _processQueue();
@@ -618,7 +657,7 @@ class DownloadManager extends ChangeNotifier {
     );
 
     logEvent(id, 'WARN', 'Download cancelled');
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
 
     _processQueue();
@@ -646,7 +685,7 @@ class DownloadManager extends ChangeNotifier {
     _taskSpeedSamples.remove(id);
     _taskElapsedSeconds.remove(id);
 
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
   }
 
@@ -667,7 +706,7 @@ class DownloadManager extends ChangeNotifier {
       _taskElapsedSeconds.remove(task.id);
     }
     _tasks.removeWhere((t) => t.status.isCompleted);
-    await _repository.saveTasks(_tasks);
+    await saveImmediate();
     notifyListeners();
   }
 
@@ -804,6 +843,7 @@ class DownloadManager extends ChangeNotifier {
   @override
   void dispose() {
     _schedulerTimer?.cancel();
+    _saveThrottleTimer?.cancel();
     super.dispose();
   }
 
@@ -880,7 +920,7 @@ class DownloadManager extends ChangeNotifier {
         logEvent(taskId, 'INFO', 'File already complete');
         _activeContexts.remove(taskId);
         client.close(force: true);
-        await _repository.saveTasks(_tasks);
+        await saveImmediate();
         notifyListeners();
         _processQueue();
         return;
@@ -1048,6 +1088,7 @@ class DownloadManager extends ChangeNotifier {
                 segments: segments,
               );
               notifyListeners();
+              scheduleThrottledSave();
             }
           }
         },
@@ -1069,7 +1110,7 @@ class DownloadManager extends ChangeNotifier {
                 downloadedBytes: downloadedBytes,
               );
               logEvent(taskId, 'ERROR', 'Error: $cleanMsg');
-              await _repository.saveTasks(_tasks);
+              await saveImmediate();
               notifyListeners();
             }
           }
@@ -1097,7 +1138,7 @@ class DownloadManager extends ChangeNotifier {
                 segments: segments,
               );
               logEvent(taskId, 'INFO', 'Download completed successfully!');
-              await _repository.saveTasks(_tasks);
+              await saveImmediate();
               notifyListeners();
             }
           }
@@ -1122,7 +1163,7 @@ class DownloadManager extends ChangeNotifier {
             speedBytesPerSec: 0.0,
           );
           logEvent(taskId, 'ERROR', 'Failure: $cleanMsg');
-          await _repository.saveTasks(_tasks);
+          await saveImmediate();
           notifyListeners();
         }
       }
