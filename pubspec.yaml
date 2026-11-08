@@ -13,6 +13,8 @@ dependencies:
   path: ^1.9.1
   open_filex: ^4.7.0
   share_plus: ^13.3.0
+  almhdy_analytics:
+    path: packages/almhdy_analytics
 
 dependency_overrides:
   path_provider_android: '>=2.2.0 <2.3.0'

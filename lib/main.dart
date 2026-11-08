@@ -1,9 +1,12 @@
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/constants.dart';
 import 'core/theme.dart';
 import 'data/download_repository.dart';
 import 'data/settings_repository.dart';
+import 'services/analytics_service.dart';
 import 'services/download_manager.dart';
 import 'ui/home_screen.dart';
 
@@ -23,12 +26,53 @@ void main() async {
     ),
   );
 
-  final repository = JsonDownloadRepository();
-  final manager = DownloadManager(repository: repository);
-  await manager.init();
+  // Hook global Flutter error capture
+  final originalOnError = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    AnalyticsService.recordError(
+      details.exception,
+      details.stack,
+      context: 'FlutterError',
+      fatal: false,
+    );
+    if (originalOnError != null) {
+      originalOnError(details);
+    } else {
+      FlutterError.presentError(details);
+    }
+  };
+
+  // Hook asynchronous platform error capture
+  PlatformDispatcher.instance.onError = (error, stack) {
+    AnalyticsService.recordError(
+      error,
+      stack,
+      context: 'PlatformDispatcher',
+      fatal: true,
+    );
+    return false;
+  };
 
   final settingsRepository = SettingsRepository();
   final initialThemeMode = await settingsRepository.loadThemeMode();
+
+  // Initialize AlmHdyAnalytics safely before runApp
+  await AnalyticsService.initialize(
+    projectKey: NetGetConstants.almhdyAnalyticsProjectKey,
+    appVersion: NetGetConstants.appVersion,
+    debug: kDebugMode,
+  );
+
+  // Sync persisted opt-out state
+  final analyticsEnabled = await settingsRepository.loadAnalyticsEnabled();
+  await AnalyticsService.setEnabled(analyticsEnabled);
+
+  // Record initial application launch
+  AnalyticsService.trackAppOpen();
+
+  final repository = JsonDownloadRepository();
+  final manager = DownloadManager(repository: repository);
+  await manager.init();
 
   runApp(NetGetApp(
     manager: manager,
@@ -53,16 +97,26 @@ class NetGetApp extends StatefulWidget {
   State<NetGetApp> createState() => _NetGetAppState();
 }
 
-class _NetGetAppState extends State<NetGetApp> {
+class _NetGetAppState extends State<NetGetApp> with WidgetsBindingObserver {
   late final ValueNotifier<ThemeMode> _themeModeNotifier;
   late final SettingsRepository _settingsRepository;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _settingsRepository = widget.settingsRepository ?? SettingsRepository();
     _themeModeNotifier = ValueNotifier<ThemeMode>(widget.initialThemeMode);
     _themeModeNotifier.addListener(_onThemeChanged);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      AnalyticsService.trackAppBackground();
+    } else if (state == AppLifecycleState.resumed) {
+      AnalyticsService.trackAppOpen();
+    }
   }
 
   void _onThemeChanged() {
@@ -74,6 +128,7 @@ class _NetGetAppState extends State<NetGetApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _themeModeNotifier.removeListener(_onThemeChanged);
     _themeModeNotifier.dispose();
     super.dispose();
@@ -110,6 +165,7 @@ class _NetGetAppState extends State<NetGetApp> {
       home: HomeScreen(
         manager: widget.manager,
         themeModeNotifier: _themeModeNotifier,
+        settingsRepository: _settingsRepository,
       ),
     );
   }

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../core/constants.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
+import '../../services/analytics_service.dart';
 import '../../services/download_manager.dart';
+import '../reports/statistics_screen.dart';
 
 class StatsSummaryCard extends StatelessWidget {
   final DownloadManager manager;
@@ -51,22 +53,42 @@ class StatsSummaryCard extends StatelessWidget {
           // Header Row: Transfer Monitor + Speed badge + Speed Mode Dropdown
           Row(
             children: [
-              Icon(
-                Icons.speed_rounded,
-                size: 18,
-                color: totalSpeed > 0
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  'Transfer Monitor',
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                  ),
+              InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: () {
+                  AnalyticsService.trackStatsViewed(view: 'summary_card_header');
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => StatisticsScreen(manager: manager),
+                    ),
+                  );
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.speed_rounded,
+                      size: 18,
+                      color: totalSpeed > 0
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Transfer Monitor',
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.insights_rounded,
+                      size: 14,
+                      color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 6),
@@ -216,6 +238,20 @@ class StatsSummaryCard extends StatelessWidget {
                   icon: Icons.delete_outline_rounded,
                   label: 'Delete',
                   onPressed: onDeleteSelected,
+                  theme: theme,
+                ),
+                const SizedBox(width: 6),
+                _buildToolbarButton(
+                  icon: Icons.insights_rounded,
+                  label: 'Stats',
+                  onPressed: () {
+                    AnalyticsService.trackStatsViewed(view: 'summary_card_toolbar');
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => StatisticsScreen(manager: manager),
+                      ),
+                    );
+                  },
                   theme: theme,
                 ),
                 const SizedBox(width: 8),

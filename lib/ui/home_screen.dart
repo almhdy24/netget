@@ -14,7 +14,11 @@ import 'widgets/add_download_sheet.dart';
 import 'widgets/download_card.dart';
 import 'widgets/empty_state_view.dart';
 import 'widgets/stats_summary_card.dart';
+import '../data/settings_repository.dart';
+import '../services/analytics_service.dart';
 import '../services/notification_permission_service.dart';
+import 'reports/statistics_screen.dart';
+import 'settings/settings_dialog.dart';
 
 enum _FilterTab { all, active, completed, queued, paused, failed }
 
@@ -24,12 +28,14 @@ class HomeScreen extends StatefulWidget {
   final DownloadManager manager;
   final ValueNotifier<ThemeMode> themeModeNotifier;
   final NotificationPermissionService? permissionService;
+  final SettingsRepository? settingsRepository;
 
   const HomeScreen({
     super.key,
     required this.manager,
     required this.themeModeNotifier,
     this.permissionService,
+    this.settingsRepository,
   });
 
   @override
@@ -57,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.screenView('home');
     _permissionService =
         widget.permissionService ?? NotificationPermissionService();
     _permissionService.addListener(_onPermissionChanged);
@@ -99,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (url.isEmpty) return;
 
     try {
-      await widget.manager.addDownload(url: url);
+      await widget.manager.addDownload(url: url, source: 'quick_input');
       _quickUrlController.clear();
       if (mounted) {
         FocusScope.of(context).unfocus();
@@ -713,6 +720,19 @@ class _HomeScreenState extends State<HomeScreen> {
               _confirmClearCompleted(context);
             } else if (value == 'scheduler') {
               _showQueueSchedulerDialog(context);
+            } else if (value == 'statistics') {
+              AnalyticsService.trackStatsViewed(source: 'menu');
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => StatisticsScreen(manager: widget.manager),
+                ),
+              );
+            } else if (value == 'settings') {
+              SettingsDialog.show(
+                context,
+                themeModeNotifier: widget.themeModeNotifier,
+                settingsRepository: widget.settingsRepository,
+              );
             } else if (value == 'theme') {
               _showThemeSelectionDialog(context);
             } else if (value == 'about') {
@@ -720,6 +740,16 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           },
           itemBuilder: (ctx) => [
+            const PopupMenuItem(
+              value: 'statistics',
+              child: Row(
+                children: [
+                  Icon(Icons.bar_chart_rounded, size: 18),
+                  SizedBox(width: 8),
+                  Text('Statistics & Reports'),
+                ],
+              ),
+            ),
             const PopupMenuItem(
               value: 'scheduler',
               child: Row(
@@ -738,6 +768,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icon(Icons.cleaning_services_outlined, size: 18),
                   SizedBox(width: 8),
                   Text('Clear Completed'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'settings',
+              child: Row(
+                children: [
+                  Icon(Icons.settings_outlined, size: 18),
+                  SizedBox(width: 8),
+                  Text('Settings'),
                 ],
               ),
             ),
@@ -839,7 +879,13 @@ class _HomeScreenState extends State<HomeScreen> {
               StatsSummaryCard(
                 manager: widget.manager,
                 isDense: _isDense,
-                onToggleDense: () => setState(() => _isDense = !_isDense),
+                onToggleDense: () {
+                  setState(() => _isDense = !_isDense);
+                  AnalyticsService.trackSettingChanged(
+                    settingName: 'view_dense',
+                    settingValue: _isDense ? 'true' : 'false',
+                  );
+                },
                 onAddLink: () => _showAddSheet(),
                 onDeleteSelected: () => _handleToolbarDelete(context),
               ),
@@ -889,11 +935,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(width: 8),
 
-                    PopupMenuButton<_SortOption>(
+                      PopupMenuButton<_SortOption>(
                       initialValue: _sortOption,
                       tooltip: 'Sort by',
                       icon: const Icon(Icons.sort_rounded, size: 20),
-                      onSelected: (opt) => setState(() => _sortOption = opt),
+                      onSelected: (opt) {
+                        setState(() => _sortOption = opt);
+                        AnalyticsService.trackSettingChanged(
+                          settingName: 'sort_option',
+                          settingValue: opt.name,
+                        );
+                      },
                       itemBuilder: (ctx) => const [
                         PopupMenuItem(
                           value: _SortOption.dateDesc,
@@ -944,8 +996,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: FilterChip(
                             selected: isSelected,
                             label: Text(_filterTabLabel(tab)),
-                            onSelected: (_) =>
-                                setState(() => _selectedTab = tab),
+                            onSelected: (_) {
+                              setState(() => _selectedTab = tab);
+                              AnalyticsService.trackSettingChanged(
+                                settingName: 'filter_tab',
+                                settingValue: tab.name,
+                              );
+                            },
                             visualDensity: VisualDensity.compact,
                           ),
                         );
@@ -1118,7 +1175,13 @@ class _HomeScreenState extends State<HomeScreen> {
             child: StatsSummaryCard(
               manager: widget.manager,
               isDense: _isDense,
-              onToggleDense: () => setState(() => _isDense = !_isDense),
+              onToggleDense: () {
+                setState(() => _isDense = !_isDense);
+                AnalyticsService.trackSettingChanged(
+                  settingName: 'view_dense',
+                  settingValue: _isDense ? 'true' : 'false',
+                );
+              },
               onAddLink: () => _showAddSheet(),
               onDeleteSelected: () => _handleToolbarDelete(context),
             ),
@@ -1175,6 +1238,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
                 onSelectionChanged: (set) {
                   setState(() => _selectedTab = set.first);
+                  AnalyticsService.trackSettingChanged(
+                    settingName: 'filter_tab',
+                    settingValue: set.first.name,
+                  );
                 },
                 style: ButtonStyle(
                   visualDensity: VisualDensity.compact,

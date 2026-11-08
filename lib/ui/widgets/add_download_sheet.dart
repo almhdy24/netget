@@ -204,6 +204,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
         resumable: _analysis?.resumable,
         etag: _analysis?.etag,
         lastModified: _analysis?.lastModified,
+        source: widget.initialUrl != null ? 'clipboard' : 'link',
       );
 
       if (mounted) {

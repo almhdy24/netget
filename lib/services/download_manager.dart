@@ -10,6 +10,7 @@ import '../core/utils.dart';
 import '../data/download_repository.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
+import 'analytics_service.dart';
 import 'multi_connection_downloader.dart';
 
 class _ActiveDownloadContext {
@@ -361,6 +362,10 @@ class DownloadManager extends ChangeNotifier {
     _speedMode = mode;
     _invokeNative('setSpeedLimit', {'bytesPerSec': mode.bytesPerSec});
     notifyListeners();
+    AnalyticsService.trackSettingChanged(
+      settingName: 'speed_mode',
+      settingValue: mode.name,
+    );
   }
 
   Future<void> _invokeNative(
@@ -534,6 +539,7 @@ class DownloadManager extends ChangeNotifier {
     bool? resumable,
     String? etag,
     String? lastModified,
+    String source = 'link',
   }) async {
     final cleanUrl = url.trim();
     if (cleanUrl.isEmpty) {
@@ -603,6 +609,11 @@ class DownloadManager extends ChangeNotifier {
     _tasks.insert(0, task);
     await saveImmediate();
     notifyListeners();
+
+    AnalyticsService.trackDownloadAdded(
+      source: source,
+      category: resolvedCategory.name,
+    );
 
     if (startNow) {
       _processQueue();
@@ -774,6 +785,7 @@ class DownloadManager extends ChangeNotifier {
     logEvent(id, 'INFO', 'Download paused');
     await saveImmediate();
     notifyListeners();
+    AnalyticsService.trackDownloadPaused();
 
     _processQueue();
   }
@@ -800,12 +812,14 @@ class DownloadManager extends ChangeNotifier {
     logEvent(id, 'INFO', 'Download queued for resume');
     await saveImmediate();
     notifyListeners();
+    AnalyticsService.trackDownloadResumed();
 
     _processQueue();
   }
 
   /// Retries a failed or cancelled task.
   Future<void> retryDownload(String id) async {
+    AnalyticsService.trackDownloadRetried();
     await resumeDownload(id);
   }
 
@@ -849,6 +863,7 @@ class DownloadManager extends ChangeNotifier {
     logEvent(id, 'WARN', 'Download cancelled');
     await saveImmediate();
     notifyListeners();
+    AnalyticsService.trackDownloadCancelled();
 
     _processQueue();
   }
@@ -1106,6 +1121,9 @@ class DownloadManager extends ChangeNotifier {
     _tasks[index] = currentTask;
     logEvent(taskId, 'PROGRESS', 'Connecting to server...');
     notifyListeners();
+    AnalyticsService.trackDownloadStarted(
+      connectionCount: currentTask.connectionCount,
+    );
 
     final ctx = _ActiveDownloadContext();
     _activeContexts[taskId] = ctx;
@@ -1267,6 +1285,19 @@ class DownloadManager extends ChangeNotifier {
                 segments: multiDownloader.segments,
               );
               logEvent(taskId, 'INFO', 'Download completed successfully!');
+              final completedTask = _tasks[idx];
+              final durationSec = completedTask.completedAt != null
+                  ? completedTask.completedAt!.difference(completedTask.createdAt).inSeconds
+                  : 0;
+              final avgSpeed = durationSec > 0
+                  ? (completedTask.downloadedBytes / durationSec).round()
+                  : 0;
+              AnalyticsService.trackDownloadCompleted(
+                totalBytes: completedTask.downloadedBytes,
+                durationSeconds: durationSec,
+                avgSpeedBytesPerSec: avgSpeed,
+                category: completedTask.category.name,
+              );
               await saveImmediate();
               notifyListeners();
               _invokeNative('notifyDownloadCompleted', {
@@ -1298,6 +1329,7 @@ class DownloadManager extends ChangeNotifier {
                   speedBytesPerSec: 0.0,
                 );
                 logEvent(taskId, 'ERROR', 'Disk full: $e');
+                AnalyticsService.trackDownloadFailed(errorType: 'storage_full');
                 await saveImmediate();
                 notifyListeners();
               }
@@ -1538,6 +1570,12 @@ class DownloadManager extends ChangeNotifier {
                 downloadedBytes: downloadedBytes,
               );
               logEvent(taskId, 'ERROR', 'Error ($failureCode): $error');
+              AnalyticsService.trackDownloadFailed(
+                errorType: failureCode.name,
+                httpStatus: failureCode == DownloadFailureCode.http403
+                    ? 403
+                    : (failureCode == DownloadFailureCode.http404 ? 404 : null),
+              );
               await saveImmediate();
               notifyListeners();
               _invokeNative('notifyDownloadFailed', {
@@ -1574,6 +1612,19 @@ class DownloadManager extends ChangeNotifier {
                 segments: segments,
               );
               logEvent(taskId, 'INFO', 'Download completed successfully!');
+              final completedTask = _tasks[idx];
+              final durationSec = completedTask.completedAt != null
+                  ? completedTask.completedAt!.difference(completedTask.createdAt).inSeconds
+                  : 0;
+              final avgSpeed = durationSec > 0
+                  ? (completedTask.downloadedBytes / durationSec).round()
+                  : 0;
+              AnalyticsService.trackDownloadCompleted(
+                totalBytes: completedTask.downloadedBytes,
+                durationSeconds: durationSec,
+                avgSpeedBytesPerSec: avgSpeed,
+                category: completedTask.category.name,
+              );
               await saveImmediate();
               notifyListeners();
               _invokeNative('notifyDownloadCompleted', {
@@ -1605,6 +1656,12 @@ class DownloadManager extends ChangeNotifier {
             speedBytesPerSec: 0.0,
           );
           logEvent(taskId, 'ERROR', 'Failure ($failureCode): $e');
+          AnalyticsService.trackDownloadFailed(
+            errorType: failureCode.name,
+            httpStatus: failureCode == DownloadFailureCode.http403
+                ? 403
+                : (failureCode == DownloadFailureCode.http404 ? 404 : null),
+          );
           await saveImmediate();
           notifyListeners();
           _invokeNative('notifyDownloadFailed', {

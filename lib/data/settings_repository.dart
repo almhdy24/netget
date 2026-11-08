@@ -52,6 +52,54 @@ class SettingsRepository {
     return ThemeMode.system;
   }
 
+  /// Loads whether analytics telemetry is enabled. Defaults to `true` (ON by default).
+  Future<bool> loadAnalyticsEnabled() async {
+    try {
+      final file = await _getFile();
+      if (!await file.exists()) {
+        return true;
+      }
+      final content = await file.readAsString();
+      if (content.trim().isEmpty) return true;
+
+      final decoded = jsonDecode(content);
+      if (decoded is Map<String, dynamic>) {
+        return decoded['analyticsEnabled'] as bool? ?? true;
+      }
+    } catch (_) {
+      // Fallback to true on read error
+    }
+    return true;
+  }
+
+  /// Persists analytics opt-in / opt-out state atomically.
+  Future<void> saveAnalyticsEnabled(bool enabled) async {
+    try {
+      final file = await _getFile();
+      Map<String, dynamic> data = {};
+      if (await file.exists()) {
+        try {
+          final content = await file.readAsString();
+          if (content.trim().isNotEmpty) {
+            final decoded = jsonDecode(content);
+            if (decoded is Map<String, dynamic>) {
+              data = decoded;
+            }
+          }
+        } catch (_) {}
+      }
+
+      data['analyticsEnabled'] = enabled;
+      data['updatedAt'] = DateTime.now().toIso8601String();
+
+      final tempFile = File('${file.path}.tmp');
+      await tempFile.writeAsString(jsonEncode(data), flush: true);
+      await NetGetUtils.safeRenameFile(tempFile, file);
+    } catch (_) {
+      // Ignore write errors gracefully
+    }
+  }
+
   /// Persists [ThemeMode] atomically using temporary file and safe rename.
   Future<void> saveThemeMode(ThemeMode mode) async {
     try {

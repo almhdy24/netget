@@ -4,6 +4,7 @@ import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../models/download_status.dart';
 import '../../models/download_task.dart';
+import '../../services/analytics_service.dart';
 import '../../services/download_manager.dart';
 import 'segment_map_painter.dart';
 import 'speed_graph_painter.dart';
@@ -30,6 +31,7 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.screenView('details');
     _detailsStream = widget.manager.watchTaskDetails(widget.taskId);
   }
 

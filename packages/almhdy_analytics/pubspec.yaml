@@ -1,0 +1,19 @@
+name: almhdy_analytics
+description: Official AlmHdy Analytics SDK for Flutter and Dart. Supports Android, iOS, and Windows Desktop with offline buffering, auto-batching, and privacy protection.
+version: 1.0.0
+homepage: https://almhdy24.com
+repository: https://github.com/almhdy24/almhdy-analytics-flutter
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^3.0.0

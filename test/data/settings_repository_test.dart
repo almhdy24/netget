@@ -39,4 +39,20 @@ void main() {
     await repo.saveThemeMode(ThemeMode.system);
     expect(await repo.loadThemeMode(), ThemeMode.system);
   });
+
+  test('loadAnalyticsEnabled defaults to true when file missing', () async {
+    final repo = SettingsRepository(file: settingsFile);
+    final enabled = await repo.loadAnalyticsEnabled();
+    expect(enabled, isTrue);
+  });
+
+  test('saveAnalyticsEnabled persists false and true correctly', () async {
+    final repo = SettingsRepository(file: settingsFile);
+
+    await repo.saveAnalyticsEnabled(false);
+    expect(await repo.loadAnalyticsEnabled(), isFalse);
+
+    await repo.saveAnalyticsEnabled(true);
+    expect(await repo.loadAnalyticsEnabled(), isTrue);
+  });
 }
