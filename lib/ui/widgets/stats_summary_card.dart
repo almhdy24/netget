@@ -53,42 +53,34 @@ class StatsSummaryCard extends StatelessWidget {
           // Header Row: Transfer Monitor + Speed badge + Speed Mode Dropdown
           Row(
             children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(6),
-                onTap: () {
-                  AnalyticsService.trackStatsViewed(view: 'summary_card_header');
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => StatisticsScreen(manager: manager),
-                    ),
-                  );
-                },
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.speed_rounded,
-                      size: 18,
-                      color: totalSpeed > 0
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Transfer Monitor',
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.2,
+              Icon(
+                Icons.speed_rounded,
+                size: 18,
+                color: totalSpeed > 0
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () {
+                    AnalyticsService.trackStatsViewed(view: 'summary_card_header');
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => StatisticsScreen(manager: manager),
                       ),
+                    );
+                  },
+                  child: Text(
+                    'Transfer Monitor',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
                     ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.insights_rounded,
-                      size: 14,
-                      color: theme.colorScheme.primary.withValues(alpha: 0.8),
-                    ),
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(width: 6),

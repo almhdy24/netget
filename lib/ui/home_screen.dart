@@ -746,7 +746,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Icon(Icons.bar_chart_rounded, size: 18),
                   SizedBox(width: 8),
-                  Text('Statistics & Reports'),
+                  Text('Statistics'),
                 ],
               ),
             ),
