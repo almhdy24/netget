@@ -1,4 +1,4 @@
-library almhdy_analytics;
+library;
 
 export 'src/almhdy_analytics_client.dart';
 export 'src/event_payload.dart';

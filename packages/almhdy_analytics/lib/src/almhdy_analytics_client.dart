@@ -71,8 +71,9 @@ class AlmHdyAnalytics {
   }) async {
     _projectKey = projectKey.trim();
     if (endpoint != null && endpoint.isNotEmpty) _endpoint = endpoint;
-    if (optOutEndpoint != null && optOutEndpoint.isNotEmpty)
+    if (optOutEndpoint != null && optOutEndpoint.isNotEmpty) {
       _optOutEndpoint = optOutEndpoint;
+    }
     if (appVersion != null && appVersion.isNotEmpty) _appVersion = appVersion;
     if (platform != null && platform.isNotEmpty) {
       _platform = platform.toLowerCase();
