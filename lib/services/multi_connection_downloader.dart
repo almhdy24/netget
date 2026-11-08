@@ -484,7 +484,7 @@ class MultiConnectionDownloader {
         bytesSinceTick += chunkBytes;
         final now = DateTime.now();
         final diff = now.difference(lastEmitTime).inMilliseconds;
-        if (diff >= 500) {
+        if (diff >= 250) {
           final sec = stopwatch.elapsedMicroseconds / 1000000.0;
           final speed = sec > 0 ? (bytesSinceTick / sec) : 0.0;
           stopwatch.reset();

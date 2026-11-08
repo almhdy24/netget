@@ -150,6 +150,39 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
+  /// Emits a progress tick for a task, updating its in-memory state and notifying
+  /// the task's ValueNotifier for immediate UI rebuild without waiting for disk throttle.
+  void emitProgressTick(
+    String taskId, {
+    required int downloadedBytes,
+    int? totalBytes,
+    double speedBytesPerSec = 0.0,
+    List<DownloadSegment>? segments,
+  }) {
+    final idx = _tasks.indexWhere((t) => t.id == taskId);
+    if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
+      final samples = _taskSpeedSamples.putIfAbsent(taskId, () => []);
+      samples.add(speedBytesPerSec);
+      if (samples.length > 60) samples.removeAt(0);
+
+      final currentElapsed = (_taskElapsedSeconds[taskId] ?? 0) + 1;
+      _taskElapsedSeconds[taskId] = currentElapsed;
+
+      _tasks[idx] = _tasks[idx].copyWith(
+        downloadedBytes: downloadedBytes,
+        totalBytes: (totalBytes != null && totalBytes > 0)
+            ? totalBytes
+            : _tasks[idx].totalBytes,
+        speedBytesPerSec: speedBytesPerSec,
+        elapsedSeconds: currentElapsed,
+        segments: segments ?? _tasks[idx].segments,
+      );
+      _notifyTaskChanged(taskId, _tasks[idx]);
+      _syncActiveDownloadsToNative();
+      scheduleThrottledSave();
+    }
+  }
+
   /// Default connections setting (default 1 preserves legacy single-stream behavior;
   /// multi-connection engine is activated when connections > 1 and server supports ranges).
   int defaultConnections = 1;
@@ -1143,25 +1176,13 @@ class DownloadManager extends ChangeNotifier {
           initialSegments: currentTask.segments,
           clientFactory: () => _createHttpClient(),
           onProgress: (downloaded, total, speed, segs) {
-            final idx = _tasks.indexWhere((t) => t.id == taskId);
-            if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
-              final samples = _taskSpeedSamples.putIfAbsent(taskId, () => []);
-              samples.add(speed);
-              if (samples.length > 60) samples.removeAt(0);
-
-              final currentElapsed = (_taskElapsedSeconds[taskId] ?? 0) + 1;
-              _taskElapsedSeconds[taskId] = currentElapsed;
-
-              _tasks[idx] = _tasks[idx].copyWith(
-                downloadedBytes: downloaded,
-                totalBytes: total > 0 ? total : _tasks[idx].totalBytes,
-                speedBytesPerSec: speed,
-                elapsedSeconds: currentElapsed,
-              );
-              _notifyTaskChanged(taskId, _tasks[idx]);
-              _syncActiveDownloadsToNative();
-              scheduleThrottledSave();
-            }
+            emitProgressTick(
+              taskId,
+              downloadedBytes: downloaded,
+              totalBytes: total,
+              speedBytesPerSec: speed,
+              segments: segs,
+            );
           },
           onCheckpoint: (segs) async {
             final idx = _tasks.indexWhere((t) => t.id == taskId);
@@ -1467,8 +1488,6 @@ class DownloadManager extends ChangeNotifier {
       int bytesSinceLastTick = 0;
       DateTime lastEmitTime = DateTime.now();
 
-      final samples = _taskSpeedSamples.putIfAbsent(taskId, () => []);
-
       final subscription = response.listen(
         (chunk) {
           sink.add(chunk);
@@ -1482,7 +1501,7 @@ class DownloadManager extends ChangeNotifier {
 
           final now = DateTime.now();
           final elapsedMs = now.difference(lastEmitTime).inMilliseconds;
-          if (elapsedMs >= 700) {
+          if (elapsedMs >= 250) {
             final elapsedSec = stopwatch.elapsedMicroseconds / 1000000.0;
             final speed = elapsedSec > 0
                 ? (bytesSinceLastTick / elapsedSec)
@@ -1492,25 +1511,12 @@ class DownloadManager extends ChangeNotifier {
             bytesSinceLastTick = 0;
             lastEmitTime = now;
 
-            // Track speed samples ring buffer (60 items)
-            samples.add(speed);
-            if (samples.length > 60) samples.removeAt(0);
-
-            final currentElapsed = (_taskElapsedSeconds[taskId] ?? 0) + 1;
-            _taskElapsedSeconds[taskId] = currentElapsed;
-
-            final idx = _tasks.indexWhere((t) => t.id == taskId);
-            if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
-              _tasks[idx] = _tasks[idx].copyWith(
-                downloadedBytes: downloadedBytes,
-                speedBytesPerSec: speed,
-                elapsedSeconds: currentElapsed,
-                segments: segments,
-              );
-              _notifyTaskChanged(taskId, _tasks[idx]);
-              _syncActiveDownloadsToNative();
-              scheduleThrottledSave();
-            }
+            emitProgressTick(
+              taskId,
+              downloadedBytes: downloadedBytes,
+              speedBytesPerSec: speed,
+              segments: segments,
+            );
           }
         },
         onError: (error) async {
