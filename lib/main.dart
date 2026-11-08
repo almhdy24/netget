@@ -67,6 +67,9 @@ class _NetGetAppState extends State<NetGetApp> {
 
   void _onThemeChanged() {
     _settingsRepository.saveThemeMode(_themeModeNotifier.value);
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -78,40 +81,36 @@ class _NetGetAppState extends State<NetGetApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: _themeModeNotifier,
-      builder: (context, themeMode, _) {
-        final platformBrightness =
-            MediaQuery.maybePlatformBrightnessOf(context) ?? Brightness.light;
-        final isDark = themeMode == ThemeMode.dark ||
-            (themeMode == ThemeMode.system &&
-                platformBrightness == Brightness.dark);
+    final themeMode = _themeModeNotifier.value;
+    final platformBrightness =
+        MediaQuery.maybePlatformBrightnessOf(context) ?? Brightness.light;
+    final isDark = themeMode == ThemeMode.dark ||
+        (themeMode == ThemeMode.system &&
+            platformBrightness == Brightness.dark);
 
-        SystemChrome.setSystemUIOverlayStyle(
-          SystemUiOverlayStyle(
-            statusBarColor: Colors.transparent,
-            statusBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
-            statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-            systemNavigationBarColor: Colors.transparent,
-            systemNavigationBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
-            systemNavigationBarContrastEnforced: false,
-          ),
-        );
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness:
+            isDark ? Brightness.light : Brightness.dark,
+        statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness:
+            isDark ? Brightness.light : Brightness.dark,
+        systemNavigationBarContrastEnforced: false,
+      ),
+    );
 
-        return MaterialApp(
-          title: '${NetGetConstants.appName} – ${NetGetConstants.appFullName}',
-          debugShowCheckedModeBanner: false,
-          themeMode: themeMode,
-          theme: NetGetTheme.lightTheme(),
-          darkTheme: NetGetTheme.darkTheme(),
-          home: HomeScreen(
-            manager: widget.manager,
-            themeModeNotifier: _themeModeNotifier,
-          ),
-        );
-      },
+    return MaterialApp(
+      title: '${NetGetConstants.appName} – ${NetGetConstants.appFullName}',
+      debugShowCheckedModeBanner: false,
+      themeMode: themeMode,
+      theme: NetGetTheme.lightTheme(),
+      darkTheme: NetGetTheme.darkTheme(),
+      home: HomeScreen(
+        manager: widget.manager,
+        themeModeNotifier: _themeModeNotifier,
+      ),
     );
   }
 }

@@ -1456,8 +1456,8 @@ class _HomeScreenState extends State<HomeScreen> {
             color: Colors.transparent,
             child: InkWell(
               onTap: () {
-                widget.themeModeNotifier.value = mode;
                 Navigator.of(ctx).pop();
+                widget.themeModeNotifier.value = mode;
               },
               borderRadius: BorderRadius.circular(12),
               child: Container(
