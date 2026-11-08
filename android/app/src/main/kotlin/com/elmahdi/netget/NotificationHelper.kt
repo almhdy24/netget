@@ -17,12 +17,8 @@ import java.io.File
 class NotificationHelper(private val context: Context) {
 
     companion object {
-        const val PROGRESS_CHANNEL_ID = "ndm_progress_channel"
-        const val PROGRESS_CHANNEL_NAME = "NDM Download Progress"
-        const val STATUS_CHANNEL_ID = "ndm_status_channel"
-        const val STATUS_CHANNEL_NAME = "NDM Transfer Status"
-        const val CHANNEL_ID = PROGRESS_CHANNEL_ID
-        const val CHANNEL_NAME = PROGRESS_CHANNEL_NAME
+        const val PROGRESS_CHANNEL_ID = "netget_progress_channel"
+        const val STATUS_CHANNEL_ID = "netget_status_channel"
         const val SUMMARY_NOTIFICATION_ID = 1001
 
         const val ACTION_PAUSE = "com.elmahdi.netget.ACTION_PAUSE"
@@ -48,26 +44,24 @@ class NotificationHelper(private val context: Context) {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Low-importance channel for ongoing progress (no sound, no vibration)
             val progressChannel = NotificationChannel(
                 PROGRESS_CHANNEL_ID,
-                PROGRESS_CHANNEL_NAME,
+                context.getString(R.string.notification_channel_progress),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows live download speeds and transfer progress"
+                description = context.getString(R.string.notification_channel_progress_desc)
                 setShowBadge(false)
                 setSound(null, null)
                 enableVibration(false)
             }
             notificationManager.createNotificationChannel(progressChannel)
 
-            // Default-importance channel for completed and failed notifications
             val statusChannel = NotificationChannel(
                 STATUS_CHANNEL_ID,
-                STATUS_CHANNEL_NAME,
+                context.getString(R.string.notification_channel_status),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Notifies when downloads complete or fail"
+                description = context.getString(R.string.notification_channel_status_desc)
                 setShowBadge(true)
             }
             notificationManager.createNotificationChannel(statusChannel)
@@ -107,7 +101,7 @@ class NotificationHelper(private val context: Context) {
         if (!soundsEnabled) return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         if (audioManager?.ringerMode != AudioManager.RINGER_MODE_NORMAL) {
-            return // Respect DND / Silent
+            return
         }
 
         val soundId = when (type) {
@@ -124,6 +118,13 @@ class NotificationHelper(private val context: Context) {
 
     fun setSoundsEnabled(enabled: Boolean) {
         soundsEnabled = enabled
+    }
+
+    fun releaseSoundPool() {
+        try {
+            soundPool?.release()
+            soundPool = null
+        } catch (_: Exception) {}
     }
 
     fun buildSummaryNotification(
@@ -156,22 +157,23 @@ class NotificationHelper(private val context: Context) {
                     contentText = "$percent%$speedPart"
                     subText = "$percent%"
                 } else {
-                    contentText = if (totalSpeedStr.isNotBlank()) "In progress • $totalSpeedStr" else "In progress"
-                    subText = "Active"
+                    val inProg = context.getString(R.string.notification_in_progress)
+                    contentText = if (totalSpeedStr.isNotBlank()) "$inProg • $totalSpeedStr" else inProg
+                    subText = inProg
                 }
             } else {
-                title = "$activeCount active downloads"
+                title = context.getString(R.string.notification_active_downloads, activeCount)
                 if (totalBytes > 0) {
                     contentText = "$percent%$speedPart"
                     subText = "$percent%"
                 } else {
-                    contentText = if (totalSpeedStr.isNotBlank()) totalSpeedStr else "In progress"
-                    subText = "$activeCount tasks"
+                    contentText = if (totalSpeedStr.isNotBlank()) totalSpeedStr else context.getString(R.string.notification_in_progress)
+                    subText = "$activeCount"
                 }
             }
         } else {
-            title = "NetGet"
-            contentText = "All transfers finished"
+            title = context.getString(R.string.app_name)
+            contentText = context.getString(R.string.notification_all_finished)
             subText = null
         }
 
@@ -192,7 +194,7 @@ class NotificationHelper(private val context: Context) {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setColor(0xFF176BFF.toInt())
+            .setColor(0xFF1D5CC9.toInt())
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
         if (!subText.isNullOrEmpty()) {
@@ -205,9 +207,7 @@ class NotificationHelper(private val context: Context) {
     fun notifySummary(notificationId: Int, notification: Notification) {
         try {
             notificationManager.notify(notificationId, notification)
-        } catch (_: Exception) {
-            // Safe when POST_NOTIFICATIONS is denied on Android 13+ (verify in docs)
-        }
+        } catch (_: Exception) {}
     }
 
     fun buildTaskProgressNotification(
@@ -230,7 +230,6 @@ class NotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Action: Pause or Resume
         val toggleAction = if (isPaused) {
             val resumeIntent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_RESUME
@@ -244,7 +243,7 @@ class NotificationHelper(private val context: Context) {
             )
             NotificationCompat.Action.Builder(
                 android.R.drawable.ic_media_play,
-                "Resume",
+                context.getString(R.string.notification_action_resume),
                 resumePending
             ).build()
         } else {
@@ -260,12 +259,11 @@ class NotificationHelper(private val context: Context) {
             )
             NotificationCompat.Action.Builder(
                 android.R.drawable.ic_media_pause,
-                "Pause",
+                context.getString(R.string.notification_action_pause),
                 pausePending
             ).build()
         }
 
-        // Action: Cancel
         val cancelIntent = Intent(context, DownloadService::class.java).apply {
             action = ACTION_CANCEL
             putExtra(EXTRA_TASK_ID, taskId)
@@ -278,7 +276,7 @@ class NotificationHelper(private val context: Context) {
         )
         val cancelAction = NotificationCompat.Action.Builder(
             android.R.drawable.ic_menu_close_clear_cancel,
-            "Cancel",
+            context.getString(R.string.notification_action_cancel),
             cancelPending
         ).build()
 
@@ -289,7 +287,7 @@ class NotificationHelper(private val context: Context) {
             if (totalBytes > 0) "$progress% • $speedStr • ETA $etaStr" else "$speedStr • ETA $etaStr"
         }
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, PROGRESS_CHANNEL_ID)
             .setSmallIcon(context.resources.getIdentifier("ic_stat_download", "drawable", context.packageName).let {
                 if (it != 0) it else android.R.drawable.stat_sys_download
             })
@@ -301,7 +299,7 @@ class NotificationHelper(private val context: Context) {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setColor(0xFF176BFF.toInt())
+            .setColor(0xFF1D5CC9.toInt())
             .addAction(toggleAction)
             .addAction(cancelAction)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -329,19 +327,17 @@ class NotificationHelper(private val context: Context) {
 
             val notification = NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("Download Complete")
+                .setContentTitle(context.getString(R.string.notification_download_complete))
                 .setContentText(fileName)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
-                .setColor(0xFF39E75F.toInt())
+                .setColor(0xFF15803D.toInt())
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
 
             notificationManager.notify(notificationId, notification)
             playSound("complete")
-        } catch (_: Exception) {
-            // Safe when POST_NOTIFICATIONS is denied on Android 13+ (verify in docs)
-        }
+        } catch (_: Exception) {}
     }
 
     fun notifyFailed(notificationId: Int, taskId: String, fileName: String, errorMessage: String) {
@@ -360,19 +356,17 @@ class NotificationHelper(private val context: Context) {
             val errorDetail = if (errorMessage.isNotBlank()) "$fileName: $errorMessage" else fileName
             val notification = NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_warning)
-                .setContentTitle("Download Failed")
+                .setContentTitle(context.getString(R.string.notification_download_failed))
                 .setContentText(errorDetail)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
-                .setColor(0xFFD32F2F.toInt())
+                .setColor(0xFFDC2626.toInt())
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
 
             notificationManager.notify(notificationId, notification)
             playSound("failed")
-        } catch (_: Exception) {
-            // Safe when POST_NOTIFICATIONS is denied on Android 13+ (verify in docs)
-        }
+        } catch (_: Exception) {}
     }
 
     fun notifyTimeout(notificationId: Int) {
@@ -386,10 +380,10 @@ class NotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentTitle("Download Paused (System 6h timeout)")
-            .setContentText("Tap to resume your active downloads")
+            .setContentTitle(context.getString(R.string.notification_paused_timeout))
+            .setContentText(context.getString(R.string.notification_paused_timeout_desc))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

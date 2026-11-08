@@ -93,9 +93,9 @@ class DownloadService : Service() {
     }
 
     /**
-     * Android 15 (API 35) foreground service dataSync 6-hour timeout handling (verify in docs).
+     * Android 15 (API 35) foreground service dataSync 6-hour timeout handling.
      * Emits onTimeout event to Dart engine to pause active transfers,
-     * persists legacy tasks, stops foreground, and posts user notification.
+     * persists tasks, stops foreground, and posts notification.
      */
     override fun onTimeout(startId: Int, fgsType: Int) {
         // Emit timeout event to Dart DownloadManager
@@ -209,7 +209,6 @@ class DownloadService : Service() {
                 totalBytes = dartTotalBytes
             )
             if (!isForeground) {
-                // Foreground service type dataSync (verify in docs)
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         startForeground(
@@ -222,18 +221,13 @@ class DownloadService : Service() {
                     }
                     isForeground = true
                 } catch (e: Exception) {
-                    // On Android 12+ (API 31+), ForegroundServiceStartNotAllowedException is thrown if started from background
-                    // On Android 13+ (API 33+), SecurityException if permission issues occur (verify in docs)
                     isForeground = false
                     throw e
                 }
             } else {
                 try {
                     notificationHelper.notifySummary(NotificationHelper.SUMMARY_NOTIFICATION_ID, summary)
-                } catch (_: Exception) {
-                    // If POST_NOTIFICATIONS is denied on Android 13+ (API 33+), notifySummary may fail
-                    // but the active foreground service continues without crashing (verify in docs).
-                }
+                } catch (_: Exception) {}
             }
         } else if (isForeground) {
             try {
@@ -277,6 +271,7 @@ class DownloadService : Service() {
     }
 
     override fun onDestroy() {
+        notificationHelper.releaseSoundPool()
         networkCallback?.let { connectivityManager?.unregisterNetworkCallback(it) }
         activeTasks.values.forEach { it.cancel() }
         executor.shutdownNow()

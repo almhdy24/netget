@@ -39,7 +39,9 @@ class AnalyticsService {
     } catch (e) {
       if (kDebugMode) {
         // ignore: avoid_print
-        print('[AnalyticsService] Initialization failed (gracefully ignored): $e');
+        print(
+          '[AnalyticsService] Initialization failed (gracefully ignored): $e',
+        );
       }
     }
   }
@@ -68,7 +70,10 @@ class AnalyticsService {
   }
 
   /// Fire-and-forget screen view tracking.
-  static void screenView(String screenName, [Map<String, dynamic>? properties]) {
+  static void screenView(
+    String screenName, [
+    Map<String, dynamic>? properties,
+  ]) {
     try {
       if (!_initialized) return;
       AlmHdyAnalytics.instance.screenView(screenName, properties: properties);
@@ -87,7 +92,9 @@ class AnalyticsService {
       final errorType = error.runtimeType.toString();
       final errorMsg = error.toString();
       // Keep error message concise and free of potential query params or local paths
-      final sanitizedMsg = errorMsg.length > 200 ? errorMsg.substring(0, 200) : errorMsg;
+      final sanitizedMsg = errorMsg.length > 200
+          ? errorMsg.substring(0, 200)
+          : errorMsg;
 
       track('app_error', {
         'error_type': errorType,
@@ -137,17 +144,12 @@ class AnalyticsService {
     required String source, // 'link', 'clipboard', 'share'
     required String category, // 'video', 'audio', 'images', 'documents', etc.
   }) {
-    track('download_added', {
-      'source': source,
-      'file_type': category,
-    });
+    track('download_added', {'source': source, 'file_type': category});
   }
 
   /// Tracks download lifecycle state transitions.
   static void trackDownloadStarted({required int connectionCount}) {
-    track('download_started', {
-      'connections': connectionCount,
-    });
+    track('download_started', {'connections': connectionCount});
   }
 
   static void trackDownloadPaused() {
@@ -198,18 +200,13 @@ class AnalyticsService {
     required String settingName,
     required String settingValue,
   }) {
-    track('setting_changed', {
-      'setting': settingName,
-      'value': settingValue,
-    });
+    track('setting_changed', {'setting': settingName, 'value': settingValue});
   }
 
   /// Tracks when the statistics monitor or detailed reports screen is viewed.
   static void trackStatsViewed({String? view, String? source}) {
     final v = view ?? source ?? 'summary_card';
-    track('stats_viewed', {
-      'view': v,
-    });
+    track('stats_viewed', {'view': v});
   }
 
   // =========================================================================

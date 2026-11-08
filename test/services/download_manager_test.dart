@@ -230,7 +230,7 @@ void main() {
         );
 
         // Wait a microtask tick for async _startDownloading to catch exception
-        await Future.delayed(const Duration(milliseconds: 50));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
         final failed = errorManager.tasks.firstWhere((t) => t.id == task.id);
         expect(failed.status, DownloadStatus.failed);
@@ -259,32 +259,36 @@ void main() {
       }
 
       // Wait for trailing throttle timer
-      await Future.delayed(const Duration(milliseconds: 1100));
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
 
       expect(
         repo.saveTasksCallCount,
         lessThanOrEqualTo(2),
-        reason: '1000 progress ticks within 1s must produce at most 2 disk writes',
+        reason:
+            '1000 progress ticks within 1s must produce at most 2 disk writes',
       );
       testManager.dispose();
     });
 
-    test('addDownload defaults to connectionCount 1 preserving single-stream path', () async {
-      final repo = MockDownloadRepository();
-      final testManager = DownloadManager(
-        repository: repo,
-        downloadsDirResolver: () async => tempDir,
-      );
-      await testManager.init();
+    test(
+      'addDownload defaults to connectionCount 1 preserving single-stream path',
+      () async {
+        final repo = MockDownloadRepository();
+        final testManager = DownloadManager(
+          repository: repo,
+          downloadsDirResolver: () async => tempDir,
+        );
+        await testManager.init();
 
-      final task = await testManager.addDownload(
-        url: 'https://example.com/test.zip',
-        startNow: false,
-      );
+        final task = await testManager.addDownload(
+          url: 'https://example.com/test.zip',
+          startNow: false,
+        );
 
-      expect(task.connectionCount, equals(1));
-      expect(testManager.defaultConnections, equals(1));
-      testManager.dispose();
-    });
+        expect(task.connectionCount, equals(1));
+        expect(testManager.defaultConnections, equals(1));
+        testManager.dispose();
+      },
+    );
   });
 }

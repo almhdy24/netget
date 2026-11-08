@@ -18,27 +18,33 @@ void main() {
     }
   });
 
-  test('loadThemeMode defaults to ThemeMode.system when file missing', () async {
-    final repo = SettingsRepository(file: settingsFile);
-    final mode = await repo.loadThemeMode();
-    expect(mode, ThemeMode.system);
-  });
+  test(
+    'loadThemeMode defaults to ThemeMode.system when file missing',
+    () async {
+      final repo = SettingsRepository(file: settingsFile);
+      final mode = await repo.loadThemeMode();
+      expect(mode, ThemeMode.system);
+    },
+  );
 
-  test('saveThemeMode and loadThemeMode persist dark, light, and system', () async {
-    final repo = SettingsRepository(file: settingsFile);
+  test(
+    'saveThemeMode and loadThemeMode persist dark, light, and system',
+    () async {
+      final repo = SettingsRepository(file: settingsFile);
 
-    // Save dark
-    await repo.saveThemeMode(ThemeMode.dark);
-    expect(await repo.loadThemeMode(), ThemeMode.dark);
+      // Save dark
+      await repo.saveThemeMode(ThemeMode.dark);
+      expect(await repo.loadThemeMode(), ThemeMode.dark);
 
-    // Save light
-    await repo.saveThemeMode(ThemeMode.light);
-    expect(await repo.loadThemeMode(), ThemeMode.light);
+      // Save light
+      await repo.saveThemeMode(ThemeMode.light);
+      expect(await repo.loadThemeMode(), ThemeMode.light);
 
-    // Save system
-    await repo.saveThemeMode(ThemeMode.system);
-    expect(await repo.loadThemeMode(), ThemeMode.system);
-  });
+      // Save system
+      await repo.saveThemeMode(ThemeMode.system);
+      expect(await repo.loadThemeMode(), ThemeMode.system);
+    },
+  );
 
   test('loadAnalyticsEnabled defaults to true when file missing', () async {
     final repo = SettingsRepository(file: settingsFile);

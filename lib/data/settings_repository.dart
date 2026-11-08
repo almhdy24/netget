@@ -1,15 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../core/utils.dart';
+import '../models/app_settings.dart';
 
-/// Repository responsible for persisting app-level preferences (e.g. theme mode)
-/// into a local atomic JSON file (`netget_settings.json`).
 class SettingsRepository {
   final File? _customFile;
   File? _resolvedFile;
+  AppSettings? _cachedSettings;
+  Future<void> _writeQueue = Future.value();
 
   SettingsRepository({File? file}) : _customFile = file;
 
@@ -23,121 +25,82 @@ class SettingsRepository {
     return file;
   }
 
-  /// Loads the persisted [ThemeMode]. Defaults to [ThemeMode.system] if not set.
-  Future<ThemeMode> loadThemeMode() async {
+  Future<AppSettings> load() async {
+    if (_cachedSettings != null) {
+      return _cachedSettings!;
+    }
+
     try {
       final file = await _getFile();
       if (!await file.exists()) {
-        return ThemeMode.system;
+        _cachedSettings = const AppSettings();
+        return _cachedSettings!;
       }
+
       final content = await file.readAsString();
-      if (content.trim().isEmpty) return ThemeMode.system;
+      if (content.trim().isEmpty) {
+        _cachedSettings = const AppSettings();
+        return _cachedSettings!;
+      }
 
       final decoded = jsonDecode(content);
       if (decoded is Map<String, dynamic>) {
-        final modeString = decoded['themeMode'] as String?;
-        switch (modeString) {
-          case 'light':
-            return ThemeMode.light;
-          case 'dark':
-            return ThemeMode.dark;
-          case 'system':
-          default:
-            return ThemeMode.system;
+        _cachedSettings = AppSettings.fromJson(decoded);
+        return _cachedSettings!;
+      }
+    } catch (e, st) {
+      debugPrint('Failed to load settings from disk: $e\n$st');
+    }
+
+    _cachedSettings = const AppSettings();
+    return _cachedSettings!;
+  }
+
+  Future<void> save(AppSettings settings) {
+    _cachedSettings = settings;
+
+    // Serialize writes through the future queue
+    _writeQueue = _writeQueue.then((_) async {
+      try {
+        final file = await _getFile();
+        final raw = const JsonEncoder.withIndent(
+          '  ',
+        ).convert(settings.toJson());
+        final tempFile = File('${file.path}.tmp');
+
+        await tempFile.writeAsString(raw, flush: true);
+        if (await tempFile.exists()) {
+          await NetGetUtils.safeRenameFile(tempFile, file);
         }
+      } catch (e, st) {
+        debugPrint('Failed to persist settings to disk: $e\n$st');
       }
-    } catch (_) {
-      // Fallback gracefully on parsing/read error
-    }
-    return ThemeMode.system;
+    });
+
+    return _writeQueue;
   }
 
-  /// Loads whether analytics telemetry is enabled. Defaults to `true` (ON by default).
-  Future<bool> loadAnalyticsEnabled() async {
-    try {
-      final file = await _getFile();
-      if (!await file.exists()) {
-        return true;
-      }
-      final content = await file.readAsString();
-      if (content.trim().isEmpty) return true;
+  // Backwards compatibility helpers
+  Future<AppSettings> loadSettings() => load();
+  Future<void> saveSettings(AppSettings settings) => save(settings);
 
-      final decoded = jsonDecode(content);
-      if (decoded is Map<String, dynamic>) {
-        return decoded['analyticsEnabled'] as bool? ?? true;
-      }
-    } catch (_) {
-      // Fallback to true on read error
-    }
-    return true;
+  Future<ThemeMode> loadThemeMode() async {
+    final s = await load();
+    return s.themeMode;
   }
 
-  /// Persists analytics opt-in / opt-out state atomically.
-  Future<void> saveAnalyticsEnabled(bool enabled) async {
-    try {
-      final file = await _getFile();
-      Map<String, dynamic> data = {};
-      if (await file.exists()) {
-        try {
-          final content = await file.readAsString();
-          if (content.trim().isNotEmpty) {
-            final decoded = jsonDecode(content);
-            if (decoded is Map<String, dynamic>) {
-              data = decoded;
-            }
-          }
-        } catch (_) {}
-      }
-
-      data['analyticsEnabled'] = enabled;
-      data['updatedAt'] = DateTime.now().toIso8601String();
-
-      final tempFile = File('${file.path}.tmp');
-      await tempFile.writeAsString(jsonEncode(data), flush: true);
-      await NetGetUtils.safeRenameFile(tempFile, file);
-    } catch (_) {
-      // Ignore write errors gracefully
-    }
-  }
-
-  /// Persists [ThemeMode] atomically using temporary file and safe rename.
   Future<void> saveThemeMode(ThemeMode mode) async {
-    try {
-      final file = await _getFile();
-      Map<String, dynamic> data = {};
-      if (await file.exists()) {
-        try {
-          final content = await file.readAsString();
-          if (content.trim().isNotEmpty) {
-            final decoded = jsonDecode(content);
-            if (decoded is Map<String, dynamic>) {
-              data = decoded;
-            }
-          }
-        } catch (_) {}
-      }
+    final current = await load();
+    await save(current.copyWith(themeMode: mode));
+  }
 
-      String modeStr;
-      switch (mode) {
-        case ThemeMode.light:
-          modeStr = 'light';
-          break;
-        case ThemeMode.dark:
-          modeStr = 'dark';
-          break;
-        case ThemeMode.system:
-          modeStr = 'system';
-          break;
-      }
+  Future<bool> loadAnalyticsEnabled() async {
+    final s = await load();
+    return s.analyticsEnabled;
+  }
 
-      data['themeMode'] = modeStr;
-      data['updatedAt'] = DateTime.now().toIso8601String();
-
-      final tempFile = File('${file.path}.tmp');
-      await tempFile.writeAsString(jsonEncode(data), flush: true);
-      await NetGetUtils.safeRenameFile(tempFile, file);
-    } catch (_) {
-      // Ignore write errors gracefully
-    }
+  Future<void> saveAnalyticsEnabled(bool enabled) async {
+    final current = await load();
+    await save(current.copyWith(analyticsEnabled: enabled));
   }
 }

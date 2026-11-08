@@ -204,8 +204,9 @@ class DownloadManager extends ChangeNotifier {
   void _syncActiveDownloadsToNative({bool force = false}) {
     if (!Platform.isAndroid && !isAndroidForTesting) return;
 
-    final downloadingTasks =
-        _tasks.where((t) => t.status == DownloadStatus.downloading).toList();
+    final downloadingTasks = _tasks
+        .where((t) => t.status == DownloadStatus.downloading)
+        .toList();
     final currentDownloadingCount = downloadingTasks.length;
     final now = clock();
 
@@ -217,8 +218,7 @@ class DownloadManager extends ChangeNotifier {
       final t = downloadingTasks.first;
       singleFileName = t.fileName;
       totalBytes = t.totalBytes;
-      overallPercent =
-          ((t.progress ?? 0.0) * 100).round().clamp(0, 100);
+      overallPercent = ((t.progress ?? 0.0) * 100).round().clamp(0, 100);
     } else if (currentDownloadingCount > 1) {
       int sumDownloaded = 0;
       int sumTotal = 0;
@@ -233,8 +233,10 @@ class DownloadManager extends ChangeNotifier {
       }
       totalBytes = allTotalsKnown ? sumTotal : -1;
       if (allTotalsKnown && sumTotal > 0) {
-        overallPercent =
-            ((sumDownloaded / sumTotal) * 100).round().clamp(0, 100);
+        overallPercent = ((sumDownloaded / sumTotal) * 100).round().clamp(
+          0,
+          100,
+        );
       } else {
         overallPercent = 0;
       }
@@ -256,8 +258,9 @@ class DownloadManager extends ChangeNotifier {
       });
     } else if (currentDownloadingCount > 0) {
       // Progress updates throttled to at most once per second
-      final elapsedMs =
-          now.difference(_lastNativeProgressReport).inMilliseconds;
+      final elapsedMs = now
+          .difference(_lastNativeProgressReport)
+          .inMilliseconds;
       if (elapsedMs >= 1000) {
         _lastNativeProgressReport = now;
         final speedText = NetGetUtils.formatSpeed(currentTotalSpeed);
@@ -376,7 +379,9 @@ class DownloadManager extends ChangeNotifier {
       try {
         await _platform.invokeMethod(method, args);
       } on PlatformException catch (e) {
-        debugPrint('Native MethodChannel error ($method): ${e.code} - ${e.message}');
+        debugPrint(
+          'Native MethodChannel error ($method): ${e.code} - ${e.message}',
+        );
         // ForegroundServiceStartNotAllowedException or permission denial: Dart engine
         // logs warning and safely continues downloading without crashing or aborting.
       } catch (e) {
@@ -431,7 +436,8 @@ class DownloadManager extends ChangeNotifier {
     if (Platform.isAndroid || isAndroidForTesting) {
       try {
         _nativeEventSubscription?.cancel();
-        final stream = eventStreamForTesting ?? _eventChannel.receiveBroadcastStream();
+        final stream =
+            eventStreamForTesting ?? _eventChannel.receiveBroadcastStream();
         _nativeEventSubscription = stream.listen((dynamic event) {
           if (event is Map) {
             // Android 15 dataSync 6-hour timeout event: pause all downloads cleanly
@@ -445,16 +451,35 @@ class DownloadManager extends ChangeNotifier {
             if (taskId != null) {
               final idx = _tasks.indexWhere((t) => t.id == taskId);
               if (idx >= 0) {
-                _tasks[idx] = _tasks[idx].copyWith(
+                final updated = _tasks[idx].copyWith(
                   downloadedBytes: downloaded ?? _tasks[idx].downloadedBytes,
                   speedBytesPerSec: speed ?? _tasks[idx].speedBytesPerSec,
                 );
-                notifyListeners();
+                _tasks[idx] = updated;
+                _notifyTaskChanged(taskId, updated);
+                _throttleAggregateNotify();
               }
             }
           }
         }, onError: (_) {});
       } catch (_) {}
+    }
+  }
+
+  DateTime _lastAggregateNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _aggregateNotifyTimer;
+
+  void _throttleAggregateNotify() {
+    final now = DateTime.now();
+    if (now.difference(_lastAggregateNotify).inMilliseconds >= 250) {
+      _lastAggregateNotify = now;
+      notifyListeners();
+    } else {
+      _aggregateNotifyTimer ??= Timer(const Duration(milliseconds: 250), () {
+        _aggregateNotifyTimer = null;
+        _lastAggregateNotify = DateTime.now();
+        notifyListeners();
+      });
     }
   }
 
@@ -1051,6 +1076,7 @@ class DownloadManager extends ChangeNotifier {
   void dispose() {
     _schedulerTimer?.cancel();
     _saveThrottleTimer?.cancel();
+    _aggregateNotifyTimer?.cancel();
     for (final t in _networkRetryTimers.values) {
       t.cancel();
     }
@@ -1141,12 +1167,14 @@ class DownloadManager extends ChangeNotifier {
       // A file may be preallocated on disk to totalBytes with holes.
       // NEVER mark completed or assume done solely based on file.length() >= totalBytes.
       // A task is only completed if its status is already completed, or all segments are verified complete.
-      final areSegmentsVerifiedComplete = currentTask.segments.isNotEmpty &&
+      final areSegmentsVerifiedComplete =
+          currentTask.segments.isNotEmpty &&
           currentTask.segments.every((s) => s.isFinished && s.isCompleted) &&
           currentTask.downloadedBytes >= currentTask.totalBytes &&
           currentTask.totalBytes > 0;
 
-      if (currentTask.status == DownloadStatus.completed || areSegmentsVerifiedComplete) {
+      if (currentTask.status == DownloadStatus.completed ||
+          areSegmentsVerifiedComplete) {
         _tasks[index] = currentTask.copyWith(
           downloadedBytes: currentTask.totalBytes,
           status: DownloadStatus.completed,
@@ -1165,18 +1193,21 @@ class DownloadManager extends ChangeNotifier {
       // If a multi-connection task has preallocated existing bytes on disk but segment metadata
       // is missing, we cannot know which byte ranges are actual data vs unwritten holes.
       // Restart cleanly from byte 0 to guarantee file integrity.
-      if (currentTask.connectionCount > 1 && currentTask.segments.isEmpty && existingBytes > 0) {
-        logEvent(taskId, 'WARN', 'Task has preallocated file with missing segment records. Restarting from byte 0.');
+      if (currentTask.connectionCount > 1 &&
+          currentTask.segments.isEmpty &&
+          existingBytes > 0) {
+        logEvent(
+          taskId,
+          'WARN',
+          'Task has preallocated file with missing segment records. Restarting from byte 0.',
+        );
         try {
           final raf = await file.open(mode: FileMode.write);
           await raf.truncate(0);
           await raf.close();
         } catch (_) {}
         existingBytes = 0;
-        currentTask = currentTask.copyWith(
-          downloadedBytes: 0,
-          segments: [],
-        );
+        currentTask = currentTask.copyWith(downloadedBytes: 0, segments: []);
         _tasks[index] = currentTask;
       }
 
@@ -1205,7 +1236,10 @@ class DownloadManager extends ChangeNotifier {
           onCheckpoint: (segs) async {
             final idx = _tasks.indexWhere((t) => t.id == taskId);
             if (idx >= 0) {
-              final flushedBytes = segs.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+              final flushedBytes = segs.fold<int>(
+                0,
+                (sum, s) => sum + s.downloadedBytes,
+              );
               _tasks[idx] = _tasks[idx].copyWith(
                 segments: segs,
                 downloadedBytes: flushedBytes,
@@ -1242,7 +1276,11 @@ class DownloadManager extends ChangeNotifier {
           }
         } catch (e) {
           if (e is HttpException && e.message.contains('Server file changed')) {
-            logEvent(taskId, 'WARN', 'Server ETag changed after restart: $e. Discarding partial file and restarting from 0.');
+            logEvent(
+              taskId,
+              'WARN',
+              'Server ETag changed after restart: $e. Discarding partial file and restarting from 0.',
+            );
             try {
               final raf = await file.open(mode: FileMode.write);
               await raf.truncate(0);
@@ -1259,16 +1297,23 @@ class DownloadManager extends ChangeNotifier {
             }
             _activeContexts.remove(taskId);
             client.close(force: true);
-            _startDownloading(taskId);
+            unawaited(_startDownloading(taskId));
             return;
           }
-          logEvent(taskId, 'WARN', 'Multi-connection probe: $e; falling back to single stream');
+          logEvent(
+            taskId,
+            'WARN',
+            'Multi-connection probe: $e; falling back to single stream',
+          );
         }
 
         if (shouldUseMulti) {
           try {
             await multiDownloader.start();
-            if (ctx.isPaused || ctx.isCancelled || multiDownloader.isPaused || multiDownloader.isCancelled) {
+            if (ctx.isPaused ||
+                ctx.isCancelled ||
+                multiDownloader.isPaused ||
+                multiDownloader.isCancelled) {
               _activeContexts.remove(taskId);
               client.close(force: true);
               return;
@@ -1278,8 +1323,12 @@ class DownloadManager extends ChangeNotifier {
             if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
               _tasks[idx] = _tasks[idx].copyWith(
                 status: DownloadStatus.completed,
-                downloadedBytes: multiDownloader.totalBytes > 0 ? multiDownloader.totalBytes : _tasks[idx].downloadedBytes,
-                totalBytes: multiDownloader.totalBytes > 0 ? multiDownloader.totalBytes : _tasks[idx].totalBytes,
+                downloadedBytes: multiDownloader.totalBytes > 0
+                    ? multiDownloader.totalBytes
+                    : _tasks[idx].downloadedBytes,
+                totalBytes: multiDownloader.totalBytes > 0
+                    ? multiDownloader.totalBytes
+                    : _tasks[idx].totalBytes,
                 speedBytesPerSec: 0.0,
                 completedAt: DateTime.now(),
                 segments: multiDownloader.segments,
@@ -1287,7 +1336,9 @@ class DownloadManager extends ChangeNotifier {
               logEvent(taskId, 'INFO', 'Download completed successfully!');
               final completedTask = _tasks[idx];
               final durationSec = completedTask.completedAt != null
-                  ? completedTask.completedAt!.difference(completedTask.createdAt).inSeconds
+                  ? completedTask.completedAt!
+                        .difference(completedTask.createdAt)
+                        .inSeconds
                   : 0;
               final avgSpeed = durationSec > 0
                   ? (completedTask.downloadedBytes / durationSec).round()
@@ -1300,11 +1351,13 @@ class DownloadManager extends ChangeNotifier {
               );
               await saveImmediate();
               notifyListeners();
-              _invokeNative('notifyDownloadCompleted', {
-                'taskId': taskId,
-                'fileName': _tasks[idx].fileName,
-                'savePath': _tasks[idx].savePath,
-              });
+              unawaited(
+                _invokeNative('notifyDownloadCompleted', {
+                  'taskId': taskId,
+                  'fileName': _tasks[idx].fileName,
+                  'savePath': _tasks[idx].savePath,
+                }),
+              );
             }
             _activeContexts.remove(taskId);
             client.close(force: true);
@@ -1325,7 +1378,8 @@ class DownloadManager extends ChangeNotifier {
               if (idx >= 0) {
                 _tasks[idx] = _tasks[idx].copyWith(
                   status: DownloadStatus.failed,
-                  errorMessage: 'Disk is full. Please free up storage space to resume download.',
+                  errorMessage:
+                      'Disk is full. Please free up storage space to resume download.',
                   speedBytesPerSec: 0.0,
                 );
                 logEvent(taskId, 'ERROR', 'Disk full: $e');
@@ -1338,8 +1392,13 @@ class DownloadManager extends ChangeNotifier {
               _processQueue();
               return;
             }
-            if (e is HttpException && e.message.contains('Server file changed')) {
-              logEvent(taskId, 'WARN', 'Server ETag changed mid-download: $e. Discarding partial file and restarting from 0.');
+            if (e is HttpException &&
+                e.message.contains('Server file changed')) {
+              logEvent(
+                taskId,
+                'WARN',
+                'Server ETag changed mid-download: $e. Discarding partial file and restarting from 0.',
+              );
               try {
                 final raf = await file.open(mode: FileMode.write);
                 await raf.truncate(0);
@@ -1356,10 +1415,14 @@ class DownloadManager extends ChangeNotifier {
               }
               _activeContexts.remove(taskId);
               client.close(force: true);
-              _startDownloading(taskId);
+              unawaited(_startDownloading(taskId));
               return;
             }
-            logEvent(taskId, 'WARN', 'Multi-connection download failed: $e; falling back to single stream');
+            logEvent(
+              taskId,
+              'WARN',
+              'Multi-connection download failed: $e; falling back to single stream',
+            );
           }
         }
       }
@@ -1367,7 +1430,11 @@ class DownloadManager extends ChangeNotifier {
       // Single stream fallback for multi-connection tasks:
       // If the file was preallocated with holes, single-stream cannot safely append to existingBytes.
       if (currentTask.connectionCount > 1 && existingBytes > 0) {
-        logEvent(taskId, 'WARN', 'Single stream fallback for multi-connection task requires fresh restart from byte 0.');
+        logEvent(
+          taskId,
+          'WARN',
+          'Single stream fallback for multi-connection task requires fresh restart from byte 0.',
+        );
         try {
           final raf = await file.open(mode: FileMode.write);
           await raf.truncate(0);
@@ -1393,7 +1460,8 @@ class DownloadManager extends ChangeNotifier {
         String? ifRangeValidator;
         if (NetGetUtils.isStrongEtag(currentTask.etag)) {
           ifRangeValidator = currentTask.etag;
-        } else if (currentTask.lastModified != null && currentTask.lastModified!.trim().isNotEmpty) {
+        } else if (currentTask.lastModified != null &&
+            currentTask.lastModified!.trim().isNotEmpty) {
           ifRangeValidator = currentTask.lastModified;
         }
 
@@ -1430,7 +1498,9 @@ class DownloadManager extends ChangeNotifier {
       bool resumable = currentTask.resumable;
 
       if (statusCode == HttpStatus.partialContent) {
-        final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+        final contentRange = response.headers.value(
+          HttpHeaders.contentRangeHeader,
+        );
         if (contentRange != null && contentRange.startsWith('bytes ')) {
           final rangePart = contentRange.substring(6).split('/')[0].trim();
           final rangeParts = rangePart.split('-');
@@ -1528,7 +1598,9 @@ class DownloadManager extends ChangeNotifier {
 
           // Update active segment
           if (segments.isNotEmpty) {
-            segments.first.downloadedBytes = downloadedBytes;
+            segments[0] = segments.first.copyWith(
+              downloadedBytes: downloadedBytes,
+            );
           }
 
           final now = DateTime.now();
@@ -1551,7 +1623,7 @@ class DownloadManager extends ChangeNotifier {
             );
           }
         },
-        onError: (error) async {
+        onError: (Object error) async {
           await sink.flush();
           await sink.close();
           client?.close(force: true);
@@ -1578,11 +1650,13 @@ class DownloadManager extends ChangeNotifier {
               );
               await saveImmediate();
               notifyListeners();
-              _invokeNative('notifyDownloadFailed', {
-                'taskId': taskId,
-                'fileName': _tasks[idx].fileName,
-                'errorMessage': cleanMsg,
-              });
+              unawaited(
+                _invokeNative('notifyDownloadFailed', {
+                  'taskId': taskId,
+                  'fileName': _tasks[idx].fileName,
+                  'errorMessage': cleanMsg,
+                }),
+              );
               if (failureCode == DownloadFailureCode.noConnection) {
                 _scheduleNetworkRetry(taskId);
               }
@@ -1601,7 +1675,7 @@ class DownloadManager extends ChangeNotifier {
             final t = _tasks[idx];
             if (t.status == DownloadStatus.downloading) {
               if (segments.isNotEmpty) {
-                segments.first.isCompleted = true;
+                segments[0] = segments.first.copyWith(isCompleted: true);
               }
               _tasks[idx] = t.copyWith(
                 status: DownloadStatus.completed,
@@ -1614,7 +1688,9 @@ class DownloadManager extends ChangeNotifier {
               logEvent(taskId, 'INFO', 'Download completed successfully!');
               final completedTask = _tasks[idx];
               final durationSec = completedTask.completedAt != null
-                  ? completedTask.completedAt!.difference(completedTask.createdAt).inSeconds
+                  ? completedTask.completedAt!
+                        .difference(completedTask.createdAt)
+                        .inSeconds
                   : 0;
               final avgSpeed = durationSec > 0
                   ? (completedTask.downloadedBytes / durationSec).round()
@@ -1627,11 +1703,13 @@ class DownloadManager extends ChangeNotifier {
               );
               await saveImmediate();
               notifyListeners();
-              _invokeNative('notifyDownloadCompleted', {
-                'taskId': taskId,
-                'fileName': _tasks[idx].fileName,
-                'savePath': _tasks[idx].savePath,
-              });
+              unawaited(
+                _invokeNative('notifyDownloadCompleted', {
+                  'taskId': taskId,
+                  'fileName': _tasks[idx].fileName,
+                  'savePath': _tasks[idx].savePath,
+                }),
+              );
             }
           }
           _processQueue();
@@ -1664,11 +1742,13 @@ class DownloadManager extends ChangeNotifier {
           );
           await saveImmediate();
           notifyListeners();
-          _invokeNative('notifyDownloadFailed', {
-            'taskId': taskId,
-            'fileName': _tasks[idx].fileName,
-            'errorMessage': cleanMsg,
-          });
+          unawaited(
+            _invokeNative('notifyDownloadFailed', {
+              'taskId': taskId,
+              'fileName': _tasks[idx].fileName,
+              'errorMessage': cleanMsg,
+            }),
+          );
           if (failureCode == DownloadFailureCode.noConnection) {
             _scheduleNetworkRetry(taskId);
           }
@@ -1690,7 +1770,8 @@ class DownloadManager extends ChangeNotifier {
     });
   }
 
-  String cleanErrorMessageForTesting(dynamic error) => _cleanErrorMessage(error);
+  String cleanErrorMessageForTesting(dynamic error) =>
+      _cleanErrorMessage(error);
 
   void setTaskFailureForTesting(String taskId, String error) {
     final idx = _tasks.indexWhere((t) => t.id == taskId);

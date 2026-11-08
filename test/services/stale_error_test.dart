@@ -33,88 +33,104 @@ class MockRepo implements DownloadRepository {
 
 void main() {
   group('Stale Error Bug Fix Verification', () {
-    test('DownloadTask.copyWith clears errorMessage when clearError: true or transitioning to active status', () {
-      final failedTask = DownloadTask(
-        id: '1',
-        url: 'https://example.com/file.zip',
-        fileName: 'file.zip',
-        savePath: '/tmp/file.zip',
-        status: DownloadStatus.failed,
-        errorMessage: 'Connection timed out',
-        createdAt: DateTime(2026, 1, 1),
-      );
+    test(
+      'DownloadTask.copyWith clears errorMessage when clearError: true or transitioning to active status',
+      () {
+        final failedTask = DownloadTask(
+          id: '1',
+          url: 'https://example.com/file.zip',
+          fileName: 'file.zip',
+          savePath: '/tmp/file.zip',
+          status: DownloadStatus.failed,
+          errorMessage: 'Connection timed out',
+          createdAt: DateTime(2026, 1, 1),
+        );
 
-      expect(failedTask.errorMessage, 'Connection timed out');
+        expect(failedTask.errorMessage, 'Connection timed out');
 
-      // 1) Explicit clearError: true
-      final clearedTaskExplicit = failedTask.copyWith(
-        clearError: true,
-      );
-      expect(clearedTaskExplicit.errorMessage, isNull);
+        // 1) Explicit clearError: true
+        final clearedTaskExplicit = failedTask.copyWith(clearError: true);
+        expect(clearedTaskExplicit.errorMessage, isNull);
 
-      // 2) Transitioning to queued with errorMessage: null
-      final clearedTaskQueued = failedTask.copyWith(
-        status: DownloadStatus.queued,
-        errorMessage: null,
-      );
-      expect(clearedTaskQueued.errorMessage, isNull);
+        // 2) Transitioning to queued with errorMessage: null
+        final clearedTaskQueued = failedTask.copyWith(
+          status: DownloadStatus.queued,
+          errorMessage: null,
+        );
+        expect(clearedTaskQueued.errorMessage, isNull);
 
-      // 3) Transitioning to downloading with errorMessage: null
-      final clearedTaskDownloading = failedTask.copyWith(
-        status: DownloadStatus.downloading,
-      );
-      expect(clearedTaskDownloading.errorMessage, isNull);
+        // 3) Transitioning to downloading with errorMessage: null
+        final clearedTaskDownloading = failedTask.copyWith(
+          status: DownloadStatus.downloading,
+        );
+        expect(clearedTaskDownloading.errorMessage, isNull);
 
-      // 4) Transitioning to completed with errorMessage: null
-      final clearedTaskCompleted = failedTask.copyWith(
-        status: DownloadStatus.completed,
-      );
-      expect(clearedTaskCompleted.errorMessage, isNull);
+        // 4) Transitioning to completed with errorMessage: null
+        final clearedTaskCompleted = failedTask.copyWith(
+          status: DownloadStatus.completed,
+        );
+        expect(clearedTaskCompleted.errorMessage, isNull);
 
-      // 5) Explicitly passing a new non-null error keeps the new error
-      final updatedErrorTask = failedTask.copyWith(
-        errorMessage: 'New 404 error',
-      );
-      expect(updatedErrorTask.errorMessage, 'New 404 error');
-    });
+        // 5) Explicitly passing a new non-null error keeps the new error
+        final updatedErrorTask = failedTask.copyWith(
+          errorMessage: 'New 404 error',
+        );
+        expect(updatedErrorTask.errorMessage, 'New 404 error');
+      },
+    );
 
-    test('fail -> retry -> downloading shows no error; persisted JSON has no stale error', () async {
-      final repo = MockRepo();
-      final manager = DownloadManager(repository: repo);
+    test(
+      'fail -> retry -> downloading shows no error; persisted JSON has no stale error',
+      () async {
+        final repo = MockRepo();
+        final manager = DownloadManager(repository: repo);
 
-      // Preload a task that failed with timeout
-      final failedTask = DownloadTask(
-        id: 'task_err',
-        url: 'https://example.com/timeout.bin',
-        fileName: 'timeout.bin',
-        savePath: '/tmp/timeout.bin',
-        status: DownloadStatus.failed,
-        errorMessage: 'Connection timed out after 30s',
-        createdAt: DateTime(2026, 1, 1),
-      );
-      repo.inMemory = [failedTask];
-      await manager.init();
+        // Preload a task that failed with timeout
+        final failedTask = DownloadTask(
+          id: 'task_err',
+          url: 'https://example.com/timeout.bin',
+          fileName: 'timeout.bin',
+          savePath: '/tmp/timeout.bin',
+          status: DownloadStatus.failed,
+          errorMessage: 'Connection timed out after 30s',
+          createdAt: DateTime(2026, 1, 1),
+        );
+        repo.inMemory = [failedTask];
+        await manager.init();
 
-      expect(manager.tasks.first.errorMessage, 'Connection timed out after 30s');
+        expect(
+          manager.tasks.first.errorMessage,
+          'Connection timed out after 30s',
+        );
 
-      // User retries download
-      await manager.retryDownload('task_err');
+        // User retries download
+        await manager.retryDownload('task_err');
 
-      final taskAfterRetry = manager.tasks.first;
-      // Task immediately queued or downloading
-      expect(taskAfterRetry.status.isActive, isTrue);
-      expect(taskAfterRetry.errorMessage, isNull,
-          reason: 'Retried task must have cleared errorMessage');
+        final taskAfterRetry = manager.tasks.first;
+        // Task immediately queued or downloading
+        expect(taskAfterRetry.status.isActive, isTrue);
+        expect(
+          taskAfterRetry.errorMessage,
+          isNull,
+          reason: 'Retried task must have cleared errorMessage',
+        );
 
-      // Check persisted repository
-      expect(repo.inMemory.first.errorMessage, isNull,
-          reason: 'Persisted task in repo must have cleared errorMessage');
+        // Check persisted repository
+        expect(
+          repo.inMemory.first.errorMessage,
+          isNull,
+          reason: 'Persisted task in repo must have cleared errorMessage',
+        );
 
-      // Check serialized JSON
-      final json = repo.inMemory.first.toJson();
-      expect(json['errorMessage'], isNull,
-          reason: 'Persisted JSON must not retain stale errorMessage');
-    });
+        // Check serialized JSON
+        final json = repo.inMemory.first.toJson();
+        expect(
+          json['errorMessage'],
+          isNull,
+          reason: 'Persisted JSON must not retain stale errorMessage',
+        );
+      },
+    );
 
     test('fail -> retry -> fail again shows the NEW error', () async {
       final repo = MockRepo();
@@ -137,7 +153,10 @@ void main() {
       expect(manager.tasks.first.errorMessage, isNull);
 
       // Trigger new failure
-      manager.setTaskFailureForTesting('task_retry', 'New error: HTTP 404 Not Found');
+      manager.setTaskFailureForTesting(
+        'task_retry',
+        'New error: HTTP 404 Not Found',
+      );
 
       expect(manager.tasks.first.errorMessage, 'New error: HTTP 404 Not Found');
     });

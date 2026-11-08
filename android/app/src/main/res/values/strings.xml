@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NetGet</string>
+    <string name="notification_channel_progress">NetGet Download Progress</string>
+    <string name="notification_channel_progress_desc">Shows live download speeds and transfer progress</string>
+    <string name="notification_channel_status">NetGet Transfer Status</string>
+    <string name="notification_channel_status_desc">Notifies when downloads complete or fail</string>
+    <string name="notification_download_complete">Download Complete</string>
+    <string name="notification_download_failed">Download Failed</string>
+    <string name="notification_paused_timeout">Download Paused (System 6h timeout)</string>
+    <string name="notification_paused_timeout_desc">Tap to resume your active downloads</string>
+    <string name="notification_all_finished">All transfers finished</string>
+    <string name="notification_in_progress">In progress</string>
+    <string name="notification_active_downloads">%1$d active downloads</string>
+    <string name="notification_action_pause">Pause</string>
+    <string name="notification_action_resume">Resume</string>
+    <string name="notification_action_cancel">Cancel</string>
+</resources>

@@ -1,14 +1,14 @@
 import 'dart:math';
+import 'constants.dart';
 
-/// Represents a single byte range segment within a file.
 class DownloadSegment {
   final int index;
   final int startByte;
-  int endByte; // inclusive, or -1 if unknown length
-  int downloadedBytes;
-  bool isCompleted;
+  final int endByte; // inclusive, or -1 if unknown length
+  final int downloadedBytes;
+  final bool isCompleted;
 
-  DownloadSegment({
+  const DownloadSegment({
     required this.index,
     required this.startByte,
     required this.endByte,
@@ -16,23 +16,19 @@ class DownloadSegment {
     this.isCompleted = false,
   });
 
-  /// Current file offset for resuming/writing this segment.
   int get currentOffset => startByte + downloadedBytes;
 
-  /// Total size of this segment in bytes (-1 if unbounded).
   int get segmentLength {
     if (endByte < 0) return -1;
     return endByte - startByte + 1;
   }
 
-  /// Remaining bytes left to download in this segment (-1 if unbounded).
   int get remainingBytes {
     if (endByte < 0) return -1;
     final rem = (endByte + 1) - currentOffset;
     return rem > 0 ? rem : 0;
   }
 
-  /// Whether this segment has finished downloading.
   bool get isFinished {
     if (isCompleted) return true;
     if (endByte >= 0 && currentOffset > endByte) return true;
@@ -74,14 +70,16 @@ class DownloadSegment {
   }
 }
 
-/// Pure logic for initial segment partitioning and dynamic re-splitting.
-class SegmentPlanner {
-  /// Minimum segment chunk size worth splitting (256 KB).
-  static const int minSplitThreshold = 256 * 1024;
+class SegmentSplitResult {
+  final List<DownloadSegment> segments;
+  final DownloadSegment newSegment;
 
-  /// Creates initial segments for a download.
-  /// If [totalBytes] <= 0 or not [resumable], creates a single segment [0..-1].
-  /// Otherwise divides [totalBytes] into [connectionCount] (clamped between 1 and 16).
+  const SegmentSplitResult({required this.segments, required this.newSegment});
+}
+
+class SegmentPlanner {
+  static const int minSplitThreshold = NetGetConstants.minSplitThresholdBytes;
+
   static List<DownloadSegment> planInitialSegments({
     required int totalBytes,
     required int connectionCount,
@@ -97,11 +95,13 @@ class SegmentPlanner {
       ];
     }
 
-    final connections = connectionCount.clamp(1, 16);
-    // Don't split into more segments than there are 128KB chunks
+    final connections = connectionCount.clamp(
+      1,
+      NetGetConstants.maxConnections,
+    );
     final effectiveConnections = min(
       connections,
-      max(1, totalBytes ~/ (128 * 1024)),
+      max(1, totalBytes ~/ NetGetConstants.minChunkPerConnectionBytes),
     );
     if (effectiveConnections <= 1) {
       return [DownloadSegment(index: 0, startByte: 0, endByte: totalBytes - 1)];
@@ -118,52 +118,54 @@ class SegmentPlanner {
       segments.add(DownloadSegment(index: i, startByte: start, endByte: end));
     }
 
-    return segments;
+    return List.unmodifiable(segments);
   }
 
-  /// Dynamic Re-splitting:
-  /// When a segment finishes, find the active segment with the largest remaining bytes.
-  /// If it has at least [minThreshold] bytes left, split its remaining range in half,
-  /// truncate the existing segment's endByte, and return a new DownloadSegment for the top half.
-  /// Returns null if no segment can be meaningfully split.
-  static DownloadSegment? splitLargestSegment(
+  static SegmentSplitResult? splitLargestSegment(
     List<DownloadSegment> segments, {
     int minThreshold = minSplitThreshold,
   }) {
-    DownloadSegment? candidate;
+    if (segments.isEmpty || minThreshold <= 0) return null;
+
+    int candidateIdx = -1;
     int maxRemaining = 0;
 
-    for (final seg in segments) {
+    for (var i = 0; i < segments.length; i++) {
+      final seg = segments[i];
       if (seg.isFinished || seg.endByte < 0) continue;
       final rem = seg.remainingBytes;
       if (rem > maxRemaining && rem >= minThreshold) {
         maxRemaining = rem;
-        candidate = seg;
+        candidateIdx = i;
       }
     }
 
-    if (candidate == null) return null;
+    if (candidateIdx < 0) return null;
 
+    final candidate = segments[candidateIdx];
     final curOffset = candidate.currentOffset;
     final originalEnd = candidate.endByte;
     final remaining = originalEnd - curOffset + 1;
     if (remaining < minThreshold) return null;
 
-    // Split point: candidate keeps lower half, new segment gets upper half
     final half = remaining ~/ 2;
     final newCandidateEnd = curOffset + half - 1;
     final newSegStart = newCandidateEnd + 1;
 
-    candidate.endByte = newCandidateEnd;
-
-    final newIndex = segments.length;
+    final updatedCandidate = candidate.copyWith(endByte: newCandidateEnd);
     final newSegment = DownloadSegment(
-      index: newIndex,
+      index: segments.length,
       startByte: newSegStart,
       endByte: originalEnd,
     );
 
-    segments.add(newSegment);
-    return newSegment;
+    final updatedList = List<DownloadSegment>.from(segments);
+    updatedList[candidateIdx] = updatedCandidate;
+    updatedList.add(newSegment);
+
+    return SegmentSplitResult(
+      segments: List.unmodifiable(updatedList),
+      newSegment: newSegment,
+    );
   }
 }

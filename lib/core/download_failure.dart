@@ -1,7 +1,71 @@
 import 'dart:async';
 import 'dart:io';
 
-/// Standard failure codes for download operations.
+sealed class DownloadFailure {
+  final int? statusCode;
+  final int? errorCode;
+  final String? rawDetail;
+
+  const DownloadFailure({this.statusCode, this.errorCode, this.rawDetail});
+
+  DownloadFailureCode get code;
+}
+
+class TimeoutFailure extends DownloadFailure {
+  const TimeoutFailure({super.rawDetail});
+  @override
+  DownloadFailureCode get code => DownloadFailureCode.timeout;
+}
+
+class NetworkFailure extends DownloadFailure {
+  const NetworkFailure({super.errorCode, super.rawDetail});
+  @override
+  DownloadFailureCode get code => DownloadFailureCode.noConnection;
+}
+
+class ServerRefusedFailure extends DownloadFailure {
+  const ServerRefusedFailure({super.errorCode, super.rawDetail});
+  @override
+  DownloadFailureCode get code => DownloadFailureCode.serverRefused;
+}
+
+class StorageFullFailure extends DownloadFailure {
+  const StorageFullFailure({super.errorCode, super.rawDetail});
+  @override
+  DownloadFailureCode get code => DownloadFailureCode.storageFull;
+}
+
+class HttpFailure extends DownloadFailure {
+  const HttpFailure({required int statusCode, super.rawDetail})
+    : super(statusCode: statusCode);
+
+  @override
+  DownloadFailureCode get code {
+    if (statusCode == 403) {
+      return DownloadFailureCode.http403;
+    }
+    if (statusCode == 404) {
+      return DownloadFailureCode.http404;
+    }
+    if (statusCode != null && statusCode! >= 500) {
+      return DownloadFailureCode.serverError;
+    }
+    return DownloadFailureCode.unknown;
+  }
+}
+
+class FileChangedOnServerFailure extends DownloadFailure {
+  const FileChangedOnServerFailure({super.rawDetail});
+  @override
+  DownloadFailureCode get code => DownloadFailureCode.fileChangedOnServer;
+}
+
+class UnknownFailure extends DownloadFailure {
+  const UnknownFailure({super.rawDetail});
+  @override
+  DownloadFailureCode get code => DownloadFailureCode.unknown;
+}
+
 enum DownloadFailureCode {
   timeout,
   noConnection,
@@ -13,7 +77,6 @@ enum DownloadFailureCode {
   serverError,
   unknown;
 
-  /// Plain, localized, human-friendly explanation of the failure.
   String localizedMessage({bool isArabic = false}) {
     if (isArabic) {
       switch (this) {
@@ -61,94 +124,49 @@ enum DownloadFailureCode {
   }
 }
 
-/// Centralized mapper that converts runtime exceptions into [DownloadFailureCode].
 class DownloadFailureMapper {
-  static DownloadFailureCode mapException(dynamic error) {
-    if (error == null) return DownloadFailureCode.unknown;
+  static DownloadFailure fromException(Object? error) {
+    if (error == null) return const UnknownFailure();
 
-    // Check FileSystemException / disk full
     if (error is FileSystemException) {
-      if (error.osError?.errorCode == 28 ||
-          error.message.toLowerCase().contains('no space') ||
-          (error.osError?.message.toLowerCase().contains('no space') ?? false)) {
-        return DownloadFailureCode.storageFull;
+      if (error.osError?.errorCode == 28) {
+        return StorageFullFailure(
+          errorCode: error.osError?.errorCode,
+          rawDetail: error.message,
+        );
       }
+      return UnknownFailure(rawDetail: error.message);
     }
 
     if (error is TimeoutException) {
-      return DownloadFailureCode.timeout;
+      return TimeoutFailure(rawDetail: error.message);
     }
 
     if (error is SocketException) {
-      final msg = (error.osError?.message ?? error.message).toLowerCase();
-      if (msg.contains('refused') || error.osError?.errorCode == 111) {
-        return DownloadFailureCode.serverRefused;
+      if (error.osError?.errorCode == 111) {
+        return ServerRefusedFailure(
+          errorCode: error.osError?.errorCode,
+          rawDetail: error.message,
+        );
       }
-      return DownloadFailureCode.noConnection;
+      return NetworkFailure(
+        errorCode: error.osError?.errorCode,
+        rawDetail: error.message,
+      );
     }
 
     if (error is HttpException) {
-      final msg = error.message.toLowerCase();
-      if (msg.contains('403')) return DownloadFailureCode.http403;
-      if (msg.contains('404')) return DownloadFailureCode.http404;
-      if (msg.contains('500') || msg.contains('502') || msg.contains('503')) {
-        return DownloadFailureCode.serverError;
-      }
+      return UnknownFailure(rawDetail: error.message);
     }
 
-    // Inspect string pattern for custom exceptions, e.g. DiskSpaceException
-    final str = error.toString().toLowerCase();
-    if (str.contains('diskspaceexception') ||
-        str.contains('no space') ||
-        str.contains('enospc') ||
-        str.contains('storage is full') ||
-        str.contains('disk is full')) {
-      return DownloadFailureCode.storageFull;
-    }
-
-    if (str.contains('etag mutated') ||
-        str.contains('file changed') ||
-        str.contains('range not satisfiable') ||
-        str.contains('416')) {
-      return DownloadFailureCode.fileChangedOnServer;
-    }
-
-    if (str.contains('refused') || str.contains('connection refused')) {
-      return DownloadFailureCode.serverRefused;
-    }
-
-    if (str.contains('timed out') || str.contains('timeout')) {
-      return DownloadFailureCode.timeout;
-    }
-
-    if (str.contains('403') || str.contains('forbidden')) {
-      return DownloadFailureCode.http403;
-    }
-
-    if (str.contains('404') || str.contains('not found')) {
-      return DownloadFailureCode.http404;
-    }
-
-    if (str.contains('network is unreachable') ||
-        str.contains('no route to host') ||
-        str.contains('failed host lookup') ||
-        str.contains('no connection')) {
-      return DownloadFailureCode.noConnection;
-    }
-
-    if (str.contains('500') ||
-        str.contains('502') ||
-        str.contains('503') ||
-        str.contains('server error')) {
-      return DownloadFailureCode.serverError;
-    }
-
-    return DownloadFailureCode.unknown;
+    return UnknownFailure(rawDetail: error.toString());
   }
 
-  /// Formats a user-friendly error string based on the detected code.
-  static String cleanErrorMessage(dynamic error, {bool isArabic = false}) {
-    final code = mapException(error);
-    return code.localizedMessage(isArabic: isArabic);
+  static DownloadFailureCode mapException(Object? error) {
+    return fromException(error).code;
+  }
+
+  static String cleanErrorMessage(Object? error, {bool isArabic = false}) {
+    return mapException(error).localizedMessage(isArabic: isArabic);
   }
 }

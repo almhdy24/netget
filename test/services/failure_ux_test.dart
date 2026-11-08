@@ -43,16 +43,25 @@ void main() {
       );
       expect(code, equals(DownloadFailureCode.timeout));
       expect(code.localizedMessage(), equals('Connection timed out'));
-      expect(code.localizedMessage(isArabic: true), equals('انتهت مهلة الاتصال'));
+      expect(
+        code.localizedMessage(isArabic: true),
+        equals('انتهت مهلة الاتصال'),
+      );
     });
 
     test('maps SocketException to serverRefused when refused', () {
       final code = DownloadFailureMapper.mapException(
-        const SocketException('Connection refused', osError: OSError('Connection refused', 111)),
+        const SocketException(
+          'Connection refused',
+          osError: OSError('Connection refused', 111),
+        ),
       );
       expect(code, equals(DownloadFailureCode.serverRefused));
       expect(code.localizedMessage(), equals('Server refused connection'));
-      expect(code.localizedMessage(isArabic: true), equals('رفض الخادم الاتصال'));
+      expect(
+        code.localizedMessage(isArabic: true),
+        equals('رفض الخادم الاتصال'),
+      );
     });
 
     test('maps SocketException to noConnection when network fails', () {
@@ -66,7 +75,11 @@ void main() {
 
     test('maps storage / disk space errors to storageFull', () {
       final code1 = DownloadFailureMapper.mapException(
-        const FileSystemException('Write failed', '', OSError('No space left on device', 28)),
+        const FileSystemException(
+          'Write failed',
+          '',
+          OSError('No space left on device', 28),
+        ),
       );
       expect(code1, equals(DownloadFailureCode.storageFull));
       expect(code1.localizedMessage(), equals('Storage is full'));
@@ -78,15 +91,21 @@ void main() {
     });
 
     test('maps HTTP 403, 404, and 500 errors', () {
-      final c403 = DownloadFailureMapper.mapException(const HttpException('403 Forbidden'));
+      final c403 = DownloadFailureMapper.mapException(
+        const HttpException('403 Forbidden'),
+      );
       expect(c403, equals(DownloadFailureCode.http403));
       expect(c403.localizedMessage(), contains('403'));
 
-      final c404 = DownloadFailureMapper.mapException(const HttpException('404 Not Found'));
+      final c404 = DownloadFailureMapper.mapException(
+        const HttpException('404 Not Found'),
+      );
       expect(c404, equals(DownloadFailureCode.http404));
       expect(c404.localizedMessage(), contains('404'));
 
-      final c500 = DownloadFailureMapper.mapException(const HttpException('500 Internal Server Error'));
+      final c500 = DownloadFailureMapper.mapException(
+        const HttpException('500 Internal Server Error'),
+      );
       expect(c500, equals(DownloadFailureCode.serverError));
     });
 
@@ -96,7 +115,10 @@ void main() {
       );
       expect(code, equals(DownloadFailureCode.fileChangedOnServer));
       expect(code.localizedMessage(), equals('File changed on server'));
-      expect(code.localizedMessage(isArabic: true), equals('تغير الملف على الخادم'));
+      expect(
+        code.localizedMessage(isArabic: true),
+        equals('تغير الملف على الخادم'),
+      );
     });
   });
 
@@ -113,35 +135,43 @@ void main() {
       manager.dispose();
     });
 
-    test('records raw exception in event log while presenting clean error to user', () async {
-      final task = DownloadTask(
-        id: 'fail_task_1',
-        url: 'https://example.com/test.bin',
-        fileName: 'test.bin',
-        savePath: '/tmp/test.bin',
-        status: DownloadStatus.downloading,
-        totalBytes: 1000,
-        downloadedBytes: 100,
-        createdAt: DateTime(2026, 1, 1),
-      );
-      repo.inMemory.add(task);
-      await manager.init();
+    test(
+      'records raw exception in event log while presenting clean error to user',
+      () async {
+        final task = DownloadTask(
+          id: 'fail_task_1',
+          url: 'https://example.com/test.bin',
+          fileName: 'test.bin',
+          savePath: '/tmp/test.bin',
+          status: DownloadStatus.downloading,
+          totalBytes: 1000,
+          downloadedBytes: 100,
+          createdAt: DateTime(2026, 1, 1),
+        );
+        repo.inMemory.add(task);
+        await manager.init();
 
-      // Trigger failure with SocketException
-      const rawError = SocketException('Failed host lookup: example.com');
-      final failureCode = DownloadFailureMapper.mapException(rawError);
-      final cleanMsg = failureCode.localizedMessage();
+        // Trigger failure with SocketException
+        const rawError = SocketException('Failed host lookup: example.com');
+        final failureCode = DownloadFailureMapper.mapException(rawError);
+        final cleanMsg = failureCode.localizedMessage();
 
-      manager.setTaskFailureForTesting(task.id, cleanMsg);
-      manager.logEvent(task.id, 'ERROR', 'Error ($failureCode): $rawError');
+        manager.setTaskFailureForTesting(task.id, cleanMsg);
+        manager.logEvent(task.id, 'ERROR', 'Error ($failureCode): $rawError');
 
-      final updatedTask = manager.tasks.firstWhere((t) => t.id == task.id);
-      expect(updatedTask.status, equals(DownloadStatus.failed));
-      expect(updatedTask.errorMessage, equals(cleanMsg));
-      expect(updatedTask.errorMessage, isNot(contains('SocketException')));
+        final updatedTask = manager.tasks.firstWhere((t) => t.id == task.id);
+        expect(updatedTask.status, equals(DownloadStatus.failed));
+        expect(updatedTask.errorMessage, equals(cleanMsg));
+        expect(updatedTask.errorMessage, isNot(contains('SocketException')));
 
-      final logs = manager.getTaskLogs(task.id);
-      expect(logs.any((l) => l.level == 'ERROR' && l.message.contains('SocketException')), isTrue);
-    });
+        final logs = manager.getTaskLogs(task.id);
+        expect(
+          logs.any(
+            (l) => l.level == 'ERROR' && l.message.contains('SocketException'),
+          ),
+          isTrue,
+        );
+      },
+    );
   });
 }

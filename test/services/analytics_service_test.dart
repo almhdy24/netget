@@ -59,7 +59,10 @@ void main() {
       AnalyticsService.trackAppOpen();
       AnalyticsService.trackAppBackground();
       AnalyticsService.screenView('test_screen');
-      AnalyticsService.trackDownloadAdded(source: 'link', category: 'documents');
+      AnalyticsService.trackDownloadAdded(
+        source: 'link',
+        category: 'documents',
+      );
       AnalyticsService.trackDownloadStarted(connectionCount: 4);
       AnalyticsService.trackDownloadPaused();
       AnalyticsService.trackDownloadResumed();
@@ -71,8 +74,14 @@ void main() {
         avgSpeedBytesPerSec: 1.25 * 1024 * 1024,
         category: 'archives',
       );
-      AnalyticsService.trackDownloadFailed(errorType: 'http404', httpStatus: 404);
-      AnalyticsService.trackSettingChanged(settingName: 'speed_mode', settingValue: 'normal');
+      AnalyticsService.trackDownloadFailed(
+        errorType: 'http404',
+        httpStatus: 404,
+      );
+      AnalyticsService.trackSettingChanged(
+        settingName: 'speed_mode',
+        settingValue: 'normal',
+      );
       AnalyticsService.trackStatsViewed(view: 'summary_card');
       AnalyticsService.recordError(
         Exception('Test error'),

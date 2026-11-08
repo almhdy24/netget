@@ -6,6 +6,8 @@ import 'core/constants.dart';
 import 'core/theme.dart';
 import 'data/download_repository.dart';
 import 'data/settings_repository.dart';
+import 'l10n/generated/app_localizations.dart';
+import 'models/app_settings.dart';
 import 'services/analytics_service.dart';
 import 'services/download_manager.dart';
 import 'ui/home_screen.dart';
@@ -54,7 +56,7 @@ void main() async {
   };
 
   final settingsRepository = SettingsRepository();
-  final initialThemeMode = await settingsRepository.loadThemeMode();
+  final initialSettings = await settingsRepository.loadSettings();
 
   // Initialize AlmHdyAnalytics safely before runApp
   await AnalyticsService.initialize(
@@ -64,8 +66,7 @@ void main() async {
   );
 
   // Sync persisted opt-out state
-  final analyticsEnabled = await settingsRepository.loadAnalyticsEnabled();
-  await AnalyticsService.setEnabled(analyticsEnabled);
+  await AnalyticsService.setEnabled(initialSettings.analyticsEnabled);
 
   // Record initial application launch
   AnalyticsService.trackAppOpen();
@@ -74,23 +75,25 @@ void main() async {
   final manager = DownloadManager(repository: repository);
   await manager.init();
 
-  runApp(NetGetApp(
-    manager: manager,
-    settingsRepository: settingsRepository,
-    initialThemeMode: initialThemeMode,
-  ));
+  runApp(
+    NetGetApp(
+      manager: manager,
+      settingsRepository: settingsRepository,
+      initialSettings: initialSettings,
+    ),
+  );
 }
 
 class NetGetApp extends StatefulWidget {
   final DownloadManager manager;
   final SettingsRepository? settingsRepository;
-  final ThemeMode initialThemeMode;
+  final AppSettings initialSettings;
 
   const NetGetApp({
     super.key,
     required this.manager,
     this.settingsRepository,
-    this.initialThemeMode = ThemeMode.system,
+    this.initialSettings = const AppSettings(),
   });
 
   @override
@@ -106,13 +109,16 @@ class _NetGetAppState extends State<NetGetApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _settingsRepository = widget.settingsRepository ?? SettingsRepository();
-    _themeModeNotifier = ValueNotifier<ThemeMode>(widget.initialThemeMode);
+    _themeModeNotifier = ValueNotifier<ThemeMode>(
+      widget.initialSettings.themeMode,
+    );
     _themeModeNotifier.addListener(_onThemeChanged);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
       AnalyticsService.trackAppBackground();
     } else if (state == AppLifecycleState.resumed) {
       AnalyticsService.trackAppOpen();
@@ -139,26 +145,35 @@ class _NetGetAppState extends State<NetGetApp> with WidgetsBindingObserver {
     final themeMode = _themeModeNotifier.value;
     final platformBrightness =
         MediaQuery.maybePlatformBrightnessOf(context) ?? Brightness.light;
-    final isDark = themeMode == ThemeMode.dark ||
+    final isDark =
+        themeMode == ThemeMode.dark ||
         (themeMode == ThemeMode.system &&
             platformBrightness == Brightness.dark);
 
     SystemChrome.setSystemUIOverlayStyle(
       SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness:
-            isDark ? Brightness.light : Brightness.dark,
+        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
         statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
         systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness:
-            isDark ? Brightness.light : Brightness.dark,
+        systemNavigationBarIconBrightness: isDark
+            ? Brightness.light
+            : Brightness.dark,
         systemNavigationBarContrastEnforced: false,
       ),
     );
 
+    final lang = widget.initialSettings.language;
+    final locale = lang == 'ar'
+        ? const Locale('ar')
+        : (lang == 'en' ? const Locale('en') : null);
+
     return MaterialApp(
       title: '${NetGetConstants.appName} – ${NetGetConstants.appFullName}',
       debugShowCheckedModeBanner: false,
+      locale: locale,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       themeMode: themeMode,
       theme: NetGetTheme.lightTheme(),
       darkTheme: NetGetTheme.darkTheme(),

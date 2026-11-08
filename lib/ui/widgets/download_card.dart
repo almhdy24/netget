@@ -36,7 +36,7 @@ class DownloadCard extends StatelessWidget {
       return;
     }
     Navigator.of(context).push(
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) =>
             DownloadDetailsScreen(manager: manager, taskId: task.id),
       ),
@@ -44,7 +44,7 @@ class DownloadCard extends StatelessWidget {
   }
 
   void _showContextMenu(BuildContext context, [Offset? globalPosition]) {
-    final RenderBox? overlay =
+    final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
     final position =
         globalPosition ??
@@ -65,7 +65,7 @@ class DownloadCard extends StatelessWidget {
             value: 'open',
             child: Row(
               children: [
-                Icon(Icons.open_in_new_rounded, size: 18),
+                Icon(Icons.open_in_new, size: 18),
                 SizedBox(width: 10),
                 Text('Open'),
               ],
@@ -77,12 +77,10 @@ class DownloadCard extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  task.status.isActive
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
+                  task.status.isActive ? Icons.pause : Icons.play_arrow,
                   size: 18,
                 ),
-                SizedBox(width: 10),
+                const SizedBox(width: 10),
                 Text(task.status.isActive ? 'Pause' : 'Resume'),
               ],
             ),
@@ -91,7 +89,7 @@ class DownloadCard extends StatelessWidget {
           value: 'open_folder',
           child: Row(
             children: [
-              Icon(Icons.folder_open_rounded, size: 18),
+              Icon(Icons.folder_open, size: 18),
               SizedBox(width: 10),
               Text('Open folder'),
             ],
@@ -101,7 +99,7 @@ class DownloadCard extends StatelessWidget {
           value: 'copy_link',
           child: Row(
             children: [
-              Icon(Icons.copy_rounded, size: 18),
+              Icon(Icons.copy, size: 18),
               SizedBox(width: 10),
               Text('Copy link'),
             ],
@@ -111,7 +109,7 @@ class DownloadCard extends StatelessWidget {
           value: 'refresh_link',
           child: Row(
             children: [
-              Icon(Icons.refresh_rounded, size: 18),
+              Icon(Icons.refresh, size: 18),
               SizedBox(width: 10),
               Text('Refresh link'),
             ],
@@ -121,7 +119,7 @@ class DownloadCard extends StatelessWidget {
           value: 'redownload',
           child: Row(
             children: [
-              Icon(Icons.restart_alt_rounded, size: 18),
+              Icon(Icons.restart_alt, size: 18),
               SizedBox(width: 10),
               Text('Re-download'),
             ],
@@ -132,7 +130,7 @@ class DownloadCard extends StatelessWidget {
             value: 'share',
             child: Row(
               children: [
-                Icon(Icons.share_rounded, size: 18),
+                Icon(Icons.share, size: 18),
                 SizedBox(width: 10),
                 Text('Share file'),
               ],
@@ -142,7 +140,7 @@ class DownloadCard extends StatelessWidget {
           value: 'properties',
           child: Row(
             children: [
-              Icon(Icons.info_outline_rounded, size: 18),
+              Icon(Icons.info_outline, size: 18),
               SizedBox(width: 10),
               Text('Properties'),
             ],
@@ -153,23 +151,26 @@ class DownloadCard extends StatelessWidget {
           value: 'remove_list',
           child: Row(
             children: [
-              Icon(
-                Icons.playlist_remove_rounded,
-                size: 18,
-                color: Colors.orange,
-              ),
+              Icon(Icons.playlist_remove, size: 18),
               SizedBox(width: 10),
               Text('Remove from list'),
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'delete_file',
           child: Row(
             children: [
-              Icon(Icons.delete_forever_rounded, size: 18, color: Colors.red),
-              SizedBox(width: 10),
-              Text('Delete with file', style: TextStyle(color: Colors.red)),
+              Icon(
+                Icons.delete_forever,
+                size: 18,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'Delete with file',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ],
           ),
         ),
@@ -247,7 +248,7 @@ class DownloadCard extends StatelessWidget {
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Row(
             children: [
-              Icon(Icons.refresh_rounded, size: 20),
+              Icon(Icons.refresh, size: 20),
               SizedBox(width: 8),
               Text('Refresh Download Link'),
             ],
@@ -320,15 +321,15 @@ class DownloadCard extends StatelessWidget {
           confirmDismiss: (direction) => _confirmDelete(context),
           background: Container(
             alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.error,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(6),
             ),
             child: const Icon(
-              Icons.delete_outline_rounded,
+              Icons.delete_outline,
               color: Colors.white,
-              size: 24,
+              size: 22,
             ),
           ),
           child: content,
@@ -337,11 +338,10 @@ class DownloadCard extends StatelessWidget {
     );
   }
 
-  // --- DENSE TABLE-LIKE LIST ROW (48 dp minimum touch target) ---
+  // --- DENSE TABLE-LIKE LIST ROW ---
   Widget _buildDenseRow(BuildContext context, DownloadTask currentTask) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final statusColor = _getStatusColor(currentTask.status);
+    final statusColor = _getStatusColor(context, currentTask.status);
     final fileIcon = NetGetUtils.getFileTypeIcon(currentTask.fileName);
 
     final progressVal = currentTask.status.isCompleted
@@ -360,15 +360,18 @@ class DownloadCard extends StatelessWidget {
       onSecondaryTapUp: (details) =>
           _showContextMenu(context, details.globalPosition),
       child: Container(
-        constraints: const BoxConstraints(minHeight: 48),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        constraints: const BoxConstraints(minHeight: 46),
+        padding: const EdgeInsetsDirectional.symmetric(
+          horizontal: 12,
+          vertical: 5,
+        ),
         decoration: BoxDecoration(
           color: isSelected
-              ? theme.colorScheme.primary.withValues(alpha: 0.1)
+              ? theme.colorScheme.primary.withValues(alpha: 0.08)
               : Colors.transparent,
           border: Border(
             bottom: BorderSide(
-              color: isDark ? const Color(0xFF232830) : const Color(0xFFEAEDF2),
+              color: theme.colorScheme.outlineVariant,
               width: 0.8,
             ),
           ),
@@ -377,7 +380,7 @@ class DownloadCard extends StatelessWidget {
           children: [
             if (isSelectionMode)
               Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsetsDirectional.only(end: 8),
                 child: Checkbox(
                   value: isSelected,
                   visualDensity: VisualDensity.compact,
@@ -386,8 +389,8 @@ class DownloadCard extends StatelessWidget {
               )
             else
               Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: Icon(fileIcon, color: statusColor, size: 20),
+                padding: const EdgeInsetsDirectional.only(end: 8),
+                child: Icon(fileIcon, color: statusColor, size: 18),
               ),
 
             // File Name + Progress mini-bar
@@ -398,11 +401,15 @@ class DownloadCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    currentTask.fileName,
+                    NetGetUtils.middleEllipsis(
+                      currentTask.fileName,
+                      maxLength: 36,
+                    ),
+                    textDirection: TextDirection.ltr,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 12.5,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -419,7 +426,7 @@ class DownloadCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
 
             // Size / Total with tabular figures
             Expanded(
@@ -428,6 +435,7 @@ class DownloadCard extends StatelessWidget {
                 currentTask.totalBytes > 0
                     ? '${NetGetUtils.formatBytes(currentTask.downloadedBytes)}/${NetGetUtils.formatBytes(currentTask.totalBytes)}'
                     : NetGetUtils.formatBytes(currentTask.downloadedBytes),
+                textDirection: TextDirection.ltr,
                 textAlign: TextAlign.end,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -436,22 +444,25 @@ class DownloadCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
 
-            // Speed or ETA
+            // Speed or Status
             Expanded(
               flex: 3,
               child: Text(
                 currentTask.status == DownloadStatus.downloading
                     ? NetGetUtils.formatSpeed(currentTask.speedBytesPerSec)
-                    : (currentTask.status.isCompleted ? 'Done' : currentTask.status.label),
+                    : (currentTask.status.isCompleted
+                          ? 'Done'
+                          : currentTask.status.label),
+                textDirection: TextDirection.ltr,
                 textAlign: TextAlign.end,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: NetGetUtils.tabularStyle(
                   TextStyle(
                     fontSize: 11,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                     color: currentTask.status == DownloadStatus.downloading
                         ? theme.colorScheme.primary
                         : statusColor,
@@ -459,17 +470,17 @@ class DownloadCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
 
             // Mini Action Button
             IconButton(
               icon: Icon(
                 currentTask.status.isActive
-                    ? Icons.pause_rounded
+                    ? Icons.pause
                     : (currentTask.status.isCompleted
-                          ? Icons.folder_open_rounded
-                          : Icons.play_arrow_rounded),
-                size: 18,
+                          ? Icons.folder_open
+                          : Icons.play_arrow),
+                size: 16,
                 color: statusColor,
               ),
               visualDensity: VisualDensity.compact,
@@ -492,31 +503,31 @@ class DownloadCard extends StatelessWidget {
     );
   }
 
-  // --- STANDARD CARD VIEW ---
+  // --- STANDARD CARD ROW (Clean desktop feel, radius 6dp max) ---
   Widget _buildCard(BuildContext context, DownloadTask currentTask) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    final statusColor = _getStatusColor(currentTask.status);
+    final statusColor = _getStatusColor(context, currentTask.status);
     final fileIcon = NetGetUtils.getFileTypeIcon(currentTask.fileName);
     final uri = Uri.tryParse(currentTask.url);
     final host = uri?.host ?? '';
 
     return Card(
-      color: isSelected
-          ? theme.colorScheme.primary.withValues(alpha: 0.08)
-          : null,
+      elevation: 0,
+      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(6),
         side: BorderSide(
           color: isSelected
               ? theme.colorScheme.primary
-              : (isDark ? const Color(0xFF1E283C) : const Color(0xFFE5E9F0)),
+              : theme.colorScheme.outlineVariant,
           width: isSelected ? 1.5 : 1.0,
         ),
       ),
+      color: isSelected
+          ? theme.colorScheme.primary.withValues(alpha: 0.05)
+          : theme.colorScheme.surface,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(6),
         onTap: () {
           if (isSelectionMode) {
             onSelectChanged?.call(!isSelected);
@@ -528,57 +539,60 @@ class DownloadCard extends StatelessWidget {
         onSecondaryTapUp: (details) =>
             _showContextMenu(context, details.globalPosition),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Top row: File Icon + File Name & Domain + Status Badge & Action Button
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   if (isSelectionMode)
                     Padding(
-                      padding: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsetsDirectional.only(end: 6),
                       child: Checkbox(
                         value: isSelected,
+                        visualDensity: VisualDensity.compact,
                         onChanged: (val) => onSelectChanged?.call(val ?? false),
                       ),
                     ),
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: isDark ? 0.18 : 0.12),
-                      borderRadius: BorderRadius.circular(10),
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
                     ),
-                    child: Icon(fileIcon, color: statusColor, size: 22),
+                    child: Icon(fileIcon, color: statusColor, size: 18),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          currentTask.fileName,
-                          maxLines: 2,
+                          NetGetUtils.middleEllipsis(
+                            currentTask.fileName,
+                            maxLength: 40,
+                          ),
+                          textDirection: TextDirection.ltr,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w600,
-                            fontSize: 13.5,
-                            height: 1.25,
+                            fontSize: 13,
                           ),
                         ),
                         if (host.isNotEmpty) ...[
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 1),
                           Text(
                             host,
+                            textDirection: TextDirection.ltr,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                              fontSize: 11,
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontSize: 10.5,
                             ),
                           ),
                         ],
@@ -586,46 +600,45 @@ class DownloadCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildStatusBadge(currentTask, statusColor, isDark),
-                      const SizedBox(width: 6),
-                      _buildQuickActionButton(context, currentTask, statusColor),
-                    ],
-                  ),
+                  _buildStatusBadge(currentTask, statusColor),
+                  const SizedBox(width: 4),
+                  _buildQuickActionButton(context, currentTask, statusColor),
                 ],
               ),
 
-              const SizedBox(height: 10),
-
-              // Progress bar
-              _buildProgressBar(context, currentTask, statusColor),
-
               const SizedBox(height: 6),
 
+              // Progress bar (3.5dp)
+              _buildProgressBar(context, currentTask, statusColor),
+
+              const SizedBox(height: 5),
+
               // Progress info & stats row
-              _buildStatsRow(context, currentTask),
+              _buildStatsRow(context, currentTask, statusColor),
 
               // Error message if failed
               if (currentTask.status.isFailed &&
                   currentTask.errorMessage != null &&
                   currentTask.errorMessage!.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+                    horizontal: 8,
+                    vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.error.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
+                    color: theme.colorScheme.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: theme.colorScheme.error.withValues(alpha: 0.25),
+                      width: 0.8,
+                    ),
                   ),
                   child: Row(
                     children: [
                       Icon(
-                        Icons.error_outline_rounded,
-                        size: 14,
+                        Icons.error_outline,
+                        size: 13,
                         color: theme.colorScheme.error,
                       ),
                       const SizedBox(width: 6),
@@ -633,7 +646,7 @@ class DownloadCard extends StatelessWidget {
                         child: Text(
                           currentTask.errorMessage!,
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 10.5,
                             color: theme.colorScheme.error,
                           ),
                           maxLines: 2,
@@ -661,56 +674,53 @@ class DownloadCard extends StatelessWidget {
     final VoidCallback onPressed;
 
     if (currentTask.status == DownloadStatus.downloading) {
-      icon = Icons.pause_rounded;
+      icon = Icons.pause;
       tooltip = 'Pause';
       onPressed = () => manager.pauseDownload(currentTask.id);
     } else if (currentTask.status == DownloadStatus.paused ||
         currentTask.status == DownloadStatus.queued) {
-      icon = Icons.play_arrow_rounded;
+      icon = Icons.play_arrow;
       tooltip = 'Resume';
       onPressed = () => manager.resumeDownload(currentTask.id);
     } else if (currentTask.status.isFailed ||
         currentTask.status == DownloadStatus.cancelled) {
-      icon = Icons.refresh_rounded;
+      icon = Icons.refresh;
       tooltip = 'Retry';
       onPressed = () => manager.retryDownload(currentTask.id);
     } else {
-      icon = Icons.folder_open_rounded;
+      icon = Icons.folder_open;
       tooltip = 'Open';
       onPressed = () => _openFile(context);
     }
 
-    return IconButton.filledTonal(
+    return IconButton(
       onPressed: onPressed,
       tooltip: tooltip,
-      icon: Icon(icon, size: 18),
-      style: IconButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.zero,
-        minimumSize: const Size(34, 34),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
+      icon: Icon(icon, size: 16),
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
     );
   }
 
-  Widget _buildStatusBadge(DownloadTask currentTask, Color color, bool isDark) {
-    String label = currentTask.status.label;
+  Widget _buildStatusBadge(DownloadTask currentTask, Color color) {
+    var label = currentTask.status.label;
     if (currentTask.status.isFailed &&
         (currentTask.errorMessage?.contains('waiting for network') == true ||
             currentTask.errorMessage?.contains('في انتظار الشبكة') == true)) {
       label = 'Waiting for network';
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: isDark ? 0.2 : 0.12),
-        borderRadius: BorderRadius.circular(6),
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(color: color.withValues(alpha: 0.3), width: 0.8),
       ),
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 10.5,
           fontWeight: FontWeight.w600,
           color: color,
         ),
@@ -723,43 +733,28 @@ class DownloadCard extends StatelessWidget {
     DownloadTask currentTask,
     Color statusColor,
   ) {
-    if (currentTask.status.isCompleted) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: LinearProgressIndicator(
-          value: 1.0,
-          backgroundColor: statusColor.withValues(alpha: 0.15),
-          valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-          minHeight: 6,
-        ),
-      );
-    }
+    final progress = currentTask.status.isCompleted
+        ? 1.0
+        : (currentTask.status.isFailed || currentTask.status.isCancelled)
+        ? (currentTask.progress ?? 0.0)
+        : currentTask.progress;
 
-    if (currentTask.status.isFailed || currentTask.status.isCancelled) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: LinearProgressIndicator(
-          value: currentTask.progress ?? 0.0,
-          backgroundColor: statusColor.withValues(alpha: 0.15),
-          valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-          minHeight: 6,
-        ),
-      );
-    }
-
-    final progress = currentTask.progress;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(2),
       child: LinearProgressIndicator(
         value: progress,
         backgroundColor: statusColor.withValues(alpha: 0.15),
         valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-        minHeight: 6,
+        minHeight: 3.5,
       ),
     );
   }
 
-  Widget _buildStatsRow(BuildContext context, DownloadTask currentTask) {
+  Widget _buildStatsRow(
+    BuildContext context,
+    DownloadTask currentTask,
+    Color statusColor,
+  ) {
     final theme = Theme.of(context);
     final downloadedStr = NetGetUtils.formatBytes(currentTask.downloadedBytes);
     final totalStr = currentTask.totalBytes > 0
@@ -776,13 +771,14 @@ class DownloadCard extends StatelessWidget {
             currentTask.totalBytes > 0
                 ? '$downloadedStr / $totalStr${percentageStr != null ? ' ($percentageStr)' : ''}'
                 : downloadedStr,
+            textDirection: TextDirection.ltr,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: NetGetUtils.tabularStyle(
               theme.textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.w500,
-                fontSize: 11,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                fontSize: 10.5,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
@@ -796,27 +792,26 @@ class DownloadCard extends StatelessWidget {
                 Flexible(
                   child: Text(
                     NetGetUtils.formatSpeed(currentTask.speedBytesPerSec),
+                    textDirection: TextDirection.ltr,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: NetGetUtils.tabularStyle(
                       TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
                         color: theme.colorScheme.primary,
                       ),
                     ),
                   ),
                 ),
                 if (currentTask.etaSeconds != null) ...[
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
                   Text(
                     '• ${NetGetUtils.formatEta(currentTask.etaSeconds)}',
                     style: NetGetUtils.tabularStyle(
                       theme.textTheme.bodySmall?.copyWith(
-                        fontSize: 11,
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.6,
-                        ),
+                        fontSize: 10.5,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -828,18 +823,14 @@ class DownloadCard extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.check_rounded,
-                size: 13,
-                color: _getStatusColor(currentTask.status),
-              ),
+              Icon(Icons.check, size: 12, color: statusColor),
               const SizedBox(width: 2),
               Text(
                 'Complete',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w600,
-                  color: _getStatusColor(currentTask.status),
+                  color: statusColor,
                 ),
               ),
             ],
@@ -848,10 +839,10 @@ class DownloadCard extends StatelessWidget {
           Text(
             currentTask.resumable ? 'Resumable' : 'No-Resume',
             style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 11,
+              fontSize: 10.5,
               color: currentTask.resumable
-                  ? const Color(0xFFF57C00)
-                  : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  ? statusColor
+                  : theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -917,7 +908,7 @@ class DownloadCard extends StatelessWidget {
   }
 
   Future<bool> _confirmDelete(BuildContext context) async {
-    bool alsoDeleteFile = true;
+    var alsoDeleteFile = true;
     final fileExists = await File(task.savePath).exists();
 
     if (!context.mounted) return false;
@@ -934,17 +925,17 @@ class DownloadCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Remove "${task.fileName}" from NDM?',
-                    style: const TextStyle(fontSize: 14),
+                    'Remove "${task.fileName}" from NetGet?',
+                    style: const TextStyle(fontSize: 13),
                   ),
                   if (fileExists) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       value: alsoDeleteFile,
                       title: const Text(
                         'Also delete file from storage',
-                        style: TextStyle(fontSize: 13),
+                        style: TextStyle(fontSize: 12.5),
                       ),
                       onChanged: (val) {
                         setState(() => alsoDeleteFile = val ?? true);
@@ -979,19 +970,20 @@ class DownloadCard extends StatelessWidget {
     return false;
   }
 
-  Color _getStatusColor(DownloadStatus status) {
+  Color _getStatusColor(BuildContext context, DownloadStatus status) {
+    final colors = Theme.of(context).statusColors;
     switch (status) {
-      case DownloadStatus.queued:
-        return NetGetTheme.brandBlue;
       case DownloadStatus.downloading:
-        return NetGetTheme.brandCyan;
+        return colors.downloading;
       case DownloadStatus.paused:
-        return NetGetTheme.warningAmber;
+        return colors.paused;
+      case DownloadStatus.queued:
+        return colors.queued;
       case DownloadStatus.completed:
-        return NetGetTheme.brandGreen;
+        return colors.completed;
       case DownloadStatus.failed:
       case DownloadStatus.cancelled:
-        return NetGetTheme.errorRed;
+        return colors.failed;
     }
   }
 }

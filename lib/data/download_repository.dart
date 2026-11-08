@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -17,6 +18,8 @@ abstract class DownloadRepository {
 class JsonDownloadRepository implements DownloadRepository {
   final File? _customFile;
   File? _resolvedFile;
+  List<DownloadTask>? _cachedTasks;
+  Future<void> _writeQueue = Future.value();
 
   JsonDownloadRepository({File? file}) : _customFile = file;
 
@@ -32,23 +35,33 @@ class JsonDownloadRepository implements DownloadRepository {
 
   @override
   Future<List<DownloadTask>> loadTasks() async {
+    if (_cachedTasks != null) {
+      return List<DownloadTask>.from(_cachedTasks!);
+    }
+
     try {
       final file = await _getFile();
       if (!await file.exists()) {
+        _cachedTasks = [];
         return [];
       }
       final raw = await file.readAsString();
-      if (raw.trim().isEmpty) return [];
+      if (raw.trim().isEmpty) {
+        _cachedTasks = [];
+        return [];
+      }
 
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return [];
+      if (decoded is! List) {
+        _cachedTasks = [];
+        return [];
+      }
 
       final tasks = <DownloadTask>[];
       for (final item in decoded) {
         if (item is Map<String, dynamic>) {
           try {
             var task = DownloadTask.fromJson(item);
-            // If the app closed while a task was downloading or queued, mark it paused
             if (task.status == DownloadStatus.downloading ||
                 task.status == DownloadStatus.queued) {
               task = task.copyWith(
@@ -57,52 +70,60 @@ class JsonDownloadRepository implements DownloadRepository {
               );
             }
             tasks.add(task);
-          } catch (e) {
-            debugPrint('Error parsing stored download task: $e');
+          } catch (e, st) {
+            debugPrint('Error parsing stored download task: $e\n$st');
           }
         }
       }
-      return tasks;
-    } catch (e) {
-      debugPrint('Failed to load download tasks from file: $e');
+      _cachedTasks = tasks;
+      return List<DownloadTask>.from(tasks);
+    } catch (e, st) {
+      debugPrint('Failed to load download tasks from file: $e\n$st');
+      _cachedTasks = [];
       return [];
     }
   }
 
   @override
-  Future<void> saveTasks(List<DownloadTask> tasks) async {
-    try {
-      final file = await _getFile();
-      final tempFile = File('${file.path}.tmp');
+  Future<void> saveTasks(List<DownloadTask> tasks) {
+    _cachedTasks = List<DownloadTask>.from(tasks);
 
-      final list = tasks.map((t) => t.toJson()).toList();
-      final raw = const JsonEncoder.withIndent('  ').convert(list);
+    _writeQueue = _writeQueue.then((_) async {
+      try {
+        final file = await _getFile();
+        final tempFile = File('${file.path}.tmp');
 
-      await tempFile.writeAsString(raw, flush: true);
-      if (await tempFile.exists()) {
-        await NetGetUtils.safeRenameFile(tempFile, file);
+        final list = tasks.map((t) => t.toJson()).toList();
+        final raw = const JsonEncoder.withIndent('  ').convert(list);
+
+        await tempFile.writeAsString(raw, flush: true);
+        if (await tempFile.exists()) {
+          await NetGetUtils.safeRenameFile(tempFile, file);
+        }
+      } catch (e, st) {
+        debugPrint('Failed to persist download tasks to disk: $e\n$st');
       }
-    } catch (e) {
-      debugPrint('Failed to save download tasks: $e');
-    }
+    });
+
+    return _writeQueue;
   }
 
   @override
   Future<void> saveTask(DownloadTask task) async {
-    final tasks = await loadTasks();
-    final index = tasks.indexWhere((t) => t.id == task.id);
+    final currentTasks = _cachedTasks ?? await loadTasks();
+    final index = currentTasks.indexWhere((t) => t.id == task.id);
     if (index >= 0) {
-      tasks[index] = task;
+      currentTasks[index] = task;
     } else {
-      tasks.insert(0, task);
+      currentTasks.insert(0, task);
     }
-    await saveTasks(tasks);
+    await saveTasks(currentTasks);
   }
 
   @override
   Future<void> deleteTask(String id) async {
-    final tasks = await loadTasks();
-    tasks.removeWhere((t) => t.id == id);
-    await saveTasks(tasks);
+    final currentTasks = _cachedTasks ?? await loadTasks();
+    currentTasks.removeWhere((t) => t.id == id);
+    await saveTasks(currentTasks);
   }
 }

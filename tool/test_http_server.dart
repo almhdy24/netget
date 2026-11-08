@@ -102,7 +102,10 @@ class TestHttpServer {
     // SCENARIO 3: Server returns 416 Range Not Satisfiable
     if (mode == 'range_416') {
       request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-      request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */${_testData.length}');
+      request.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes */${_testData.length}',
+      );
       await request.response.close();
       return;
     }
@@ -119,7 +122,10 @@ class TestHttpServer {
 
       if (start >= _testData.length || end < start) {
         request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-        request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */${_testData.length}');
+        request.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes */${_testData.length}',
+        );
         await request.response.close();
         return;
       }
@@ -130,7 +136,10 @@ class TestHttpServer {
       request.response.statusCode = HttpStatus.partialContent;
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
       request.response.headers.set(HttpHeaders.etagHeader, currentEtag);
-      request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-$clampedEnd/${_testData.length}');
+      request.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$clampedEnd/${_testData.length}',
+      );
       request.response.headers.contentLength = length;
       request.response.headers.contentType = ContentType.binary;
 
@@ -156,7 +165,7 @@ class TestHttpServer {
           final delayMs = ((toSend / throttleBytesPerSec!) * 1000).round();
           if (delayMs > 0) {
             await request.response.flush();
-            await Future.delayed(Duration(milliseconds: delayMs));
+            await Future<void>.delayed(Duration(milliseconds: delayMs));
           }
         }
         offset += toSend;
@@ -195,7 +204,7 @@ class TestHttpServer {
         final delayMs = ((toSend / throttleBytesPerSec!) * 1000).round();
         if (delayMs > 0) {
           await request.response.flush();
-          await Future.delayed(Duration(milliseconds: delayMs));
+          await Future<void>.delayed(Duration(milliseconds: delayMs));
         }
       }
       offset += toSend;

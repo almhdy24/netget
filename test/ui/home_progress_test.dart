@@ -35,67 +35,83 @@ class TestDownloadRepository implements DownloadRepository {
 }
 
 void main() {
-  testWidgets('(a) single-connection progress ticks update the Home card progress bar and percent within one frame', (
-    WidgetTester tester,
-  ) async {
-    final repository = TestDownloadRepository();
-    final initialTask = DownloadTask(
-      id: 'task_single',
-      url: 'https://example.com/single.bin',
-      fileName: 'single.bin',
-      savePath: '/tmp/single.bin',
-      status: DownloadStatus.downloading,
-      downloadedBytes: 0,
-      totalBytes: 1000,
-      connectionCount: 1,
-      createdAt: DateTime.now(),
-    );
-    repository.tasks = [initialTask];
+  testWidgets(
+    '(a) single-connection progress ticks update the Home card progress bar and percent within one frame',
+    (WidgetTester tester) async {
+      final repository = TestDownloadRepository();
+      final initialTask = DownloadTask(
+        id: 'task_single',
+        url: 'https://example.com/single.bin',
+        fileName: 'single.bin',
+        savePath: '/tmp/single.bin',
+        status: DownloadStatus.downloading,
+        downloadedBytes: 0,
+        totalBytes: 1000,
+        connectionCount: 1,
+        createdAt: DateTime.now(),
+      );
+      repository.tasks = [initialTask];
 
-    final manager = DownloadManager(repository: repository);
-    addTearDown(manager.dispose);
-    await manager.init();
+      final manager = DownloadManager(repository: repository);
+      addTearDown(manager.dispose);
+      await manager.init();
 
-    await tester.pumpWidget(NetGetApp(manager: manager));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpWidget(NetGetApp(manager: manager));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
-    // Verify initial 0% state
-    expect(find.text('single.bin'), findsOneWidget);
-    expect(find.textContaining('0.0%'), findsOneWidget);
+      // Verify initial 0% state
+      expect(find.text('single.bin'), findsOneWidget);
+      expect(find.textContaining('0.0%'), findsOneWidget);
 
-    final initialIndicator = tester.widget<LinearProgressIndicator>(
-      find.byType(LinearProgressIndicator),
-    );
-    expect(initialIndicator.value, 0.0);
+      final initialIndicator = tester.widget<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      expect(initialIndicator.value, 0.0);
 
-    // Emit a single-connection progress tick to 45% (450 bytes)
-    manager.emitProgressTick(
-      'task_single',
-      downloadedBytes: 450,
-      totalBytes: 1000,
-      speedBytesPerSec: 50000,
-    );
+      // Emit a single-connection progress tick to 45% (450 bytes)
+      manager.emitProgressTick(
+        'task_single',
+        downloadedBytes: 450,
+        totalBytes: 1000,
+        speedBytesPerSec: 50000,
+      );
 
-    // Verify it updates within one frame (a single pump with no elapsed duration)
-    await tester.pump();
+      // Verify it updates within one frame (a single pump with no elapsed duration)
+      await tester.pump();
 
-    expect(find.textContaining('45.0%'), findsOneWidget);
-    final updatedIndicator = tester.widget<LinearProgressIndicator>(
-      find.byType(LinearProgressIndicator),
-    );
-    expect(updatedIndicator.value, 0.45);
-  });
+      expect(find.textContaining('45.0%'), findsOneWidget);
+      final updatedIndicator = tester.widget<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      expect(updatedIndicator.value, 0.45);
+    },
+  );
 
   testWidgets('(b) multi-connection ticks do the same', (
     WidgetTester tester,
   ) async {
     final repository = TestDownloadRepository();
-    final initialSegments = [
+    final initialSegments = const [
       DownloadSegment(index: 0, startByte: 0, endByte: 499, downloadedBytes: 0),
-      DownloadSegment(index: 1, startByte: 500, endByte: 999, downloadedBytes: 0),
-      DownloadSegment(index: 2, startByte: 1000, endByte: 1499, downloadedBytes: 0),
-      DownloadSegment(index: 3, startByte: 1500, endByte: 1999, downloadedBytes: 0),
+      DownloadSegment(
+        index: 1,
+        startByte: 500,
+        endByte: 999,
+        downloadedBytes: 0,
+      ),
+      DownloadSegment(
+        index: 2,
+        startByte: 1000,
+        endByte: 1499,
+        downloadedBytes: 0,
+      ),
+      DownloadSegment(
+        index: 3,
+        startByte: 1500,
+        endByte: 1999,
+        downloadedBytes: 0,
+      ),
     ];
 
     final initialTask = DownloadTask(
@@ -124,13 +140,36 @@ void main() {
     expect(find.text('multi.bin'), findsOneWidget);
     expect(find.textContaining('0.0%'), findsOneWidget);
 
-    final updatedSegments = [
-      DownloadSegment(index: 0, startByte: 0, endByte: 499, downloadedBytes: 250),
-      DownloadSegment(index: 1, startByte: 500, endByte: 999, downloadedBytes: 250),
-      DownloadSegment(index: 2, startByte: 1000, endByte: 1499, downloadedBytes: 250),
-      DownloadSegment(index: 3, startByte: 1500, endByte: 1999, downloadedBytes: 250),
+    final updatedSegments = const [
+      DownloadSegment(
+        index: 0,
+        startByte: 0,
+        endByte: 499,
+        downloadedBytes: 250,
+      ),
+      DownloadSegment(
+        index: 1,
+        startByte: 500,
+        endByte: 999,
+        downloadedBytes: 250,
+      ),
+      DownloadSegment(
+        index: 2,
+        startByte: 1000,
+        endByte: 1499,
+        downloadedBytes: 250,
+      ),
+      DownloadSegment(
+        index: 3,
+        startByte: 1500,
+        endByte: 1999,
+        downloadedBytes: 250,
+      ),
     ];
-    final totalDownloaded = updatedSegments.fold<int>(0, (int sum, DownloadSegment s) => sum + s.downloadedBytes);
+    final totalDownloaded = updatedSegments.fold<int>(
+      0,
+      (int sum, DownloadSegment s) => sum + s.downloadedBytes,
+    );
 
     // Emit multi-connection progress tick: 1000 of 2000 bytes (50.0%)
     manager.emitProgressTick(

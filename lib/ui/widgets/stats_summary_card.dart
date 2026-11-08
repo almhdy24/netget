@@ -57,8 +57,11 @@ class StatsSummaryCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(5),
                 decoration: BoxDecoration(
-                  color: (totalSpeed > 0 ? theme.colorScheme.primary : theme.colorScheme.onSurface)
-                      .withValues(alpha: 0.1),
+                  color:
+                      (totalSpeed > 0
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface)
+                          .withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
@@ -74,9 +77,11 @@ class StatsSummaryCard extends StatelessWidget {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(6),
                   onTap: () {
-                    AnalyticsService.trackStatsViewed(view: 'summary_card_header');
+                    AnalyticsService.trackStatsViewed(
+                      view: 'summary_card_header',
+                    );
                     Navigator.of(context).push(
-                      MaterialPageRoute(
+                      MaterialPageRoute<void>(
                         builder: (_) => StatisticsScreen(manager: manager),
                       ),
                     );
@@ -118,7 +123,9 @@ class StatsSummaryCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: DropdownButtonHideUnderline(
@@ -259,9 +266,11 @@ class StatsSummaryCard extends StatelessWidget {
                   icon: Icons.insights_rounded,
                   label: 'Stats',
                   onPressed: () {
-                    AnalyticsService.trackStatsViewed(view: 'summary_card_toolbar');
+                    AnalyticsService.trackStatsViewed(
+                      view: 'summary_card_toolbar',
+                    );
                     Navigator.of(context).push(
-                      MaterialPageRoute(
+                      MaterialPageRoute<void>(
                         builder: (_) => StatisticsScreen(manager: manager),
                       ),
                     );
@@ -353,7 +362,10 @@ class StatsSummaryCard extends StatelessWidget {
       return FilledButton.icon(
         onPressed: onPressed,
         icon: Icon(icon, size: 15),
-        label: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+        label: Text(
+          label,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        ),
         style: FilledButton.styleFrom(
           visualDensity: VisualDensity.compact,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -364,7 +376,10 @@ class StatsSummaryCard extends StatelessWidget {
     return FilledButton.tonalIcon(
       onPressed: onPressed,
       icon: Icon(icon, size: 15),
-      label: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+      ),
       style: FilledButton.styleFrom(
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

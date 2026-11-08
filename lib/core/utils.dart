@@ -11,8 +11,22 @@ class NetGetUtils {
         ...?style.fontFeatures,
         const FontFeature.tabularFigures(),
       ],
-      fontFamily: 'monospace',
     );
+  }
+
+  /// Truncates long filenames in the middle while keeping the extension visible.
+  static String middleEllipsis(String text, {int maxLength = 36}) {
+    if (text.length <= maxLength || maxLength <= 7) return text;
+    final extIndex = text.lastIndexOf('.');
+    final ext = (extIndex > 0 && extIndex >= text.length - 10)
+        ? text.substring(extIndex)
+        : '';
+    final keepEnd = ext.isNotEmpty ? ext.length + 3 : 6;
+    final keepStart = maxLength - keepEnd - 3;
+    if (keepStart < 3) return text;
+    final start = text.substring(0, keepStart);
+    final end = text.substring(text.length - keepEnd);
+    return '$start...$end';
   }
 
   /// Formats byte count into human-readable string (B, KB, MB, GB).
@@ -108,7 +122,9 @@ class NetGetUtils {
   /// MAX_PATH (260 characters).
   static String sanitizeFileName(String input, {int maxFileNameLength = 240}) {
     // 1. Replace invalid characters (< > : " / \ | ? * and control chars) with '_'
-    var cleaned = input.replaceAll(RegExp(r'[\\/:*?"<>|\r\n\t\x00-\x1F]'), '_').trim();
+    var cleaned = input
+        .replaceAll(RegExp(r'[\\/:*?"<>|\r\n\t\x00-\x1F]'), '_')
+        .trim();
 
     // 2. Remove trailing dots and spaces (forbidden on Windows filesystem)
     cleaned = cleaned.replaceAll(RegExp(r'[\. ]+$'), '');
@@ -128,7 +144,8 @@ class NetGetUtils {
       if (extIndex > 0 && extIndex > cleaned.length - 20) {
         final ext = cleaned.substring(extIndex);
         final maxBaseLen = maxFileNameLength - ext.length;
-        cleaned = '${cleaned.substring(0, maxBaseLen > 0 ? maxBaseLen : maxFileNameLength)}$ext';
+        cleaned =
+            '${cleaned.substring(0, maxBaseLen > 0 ? maxBaseLen : maxFileNameLength)}$ext';
       } else {
         cleaned = cleaned.substring(0, maxFileNameLength);
       }
@@ -361,5 +378,28 @@ class NetGetUtils {
     if (trimmed.isEmpty) return false;
     if (trimmed.startsWith('W/') || trimmed.startsWith('w/')) return false;
     return true;
+  }
+
+  /// Returns available free disk space in bytes for [directoryPath] or null if unavailable.
+  static Future<int?> getFreeDiskSpace(String directoryPath) async {
+    if (Platform.isWindows) {
+      return null;
+    }
+    try {
+      final result = await Process.run('df', ['-Pk', directoryPath]);
+      if (result.exitCode == 0) {
+        final lines = (result.stdout as String).trim().split('\n');
+        if (lines.length >= 2) {
+          final parts = lines[1].split(RegExp(r'\s+'));
+          if (parts.length >= 4) {
+            final availKb = int.tryParse(parts[3]);
+            if (availKb != null) {
+              return availKb * 1024;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 }

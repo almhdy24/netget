@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../core/theme.dart';
 
 class EmptyStateView extends StatelessWidget {
   final IconData icon;
@@ -23,90 +22,86 @@ class EmptyStateView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final colorScheme = theme.colorScheme;
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isDark
-                    ? NetGetTheme.brandNavy
-                    : theme.colorScheme.primary.withValues(alpha: 0.08),
-                border: Border.all(
-                  color: isDark
-                      ? NetGetTheme.brandCyan.withValues(alpha: 0.2)
-                      : theme.colorScheme.primary.withValues(alpha: 0.15),
-                  width: 1.5,
-                ),
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: colorScheme.outlineVariant),
               ),
-              child: Icon(
-                icon,
-                size: 44,
-                color: isDark
-                    ? NetGetTheme.brandCyan
-                    : theme.colorScheme.primary.withValues(alpha: 0.85),
-              ),
+              child: Icon(icon, size: 24, color: colorScheme.onSurfaceVariant),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                height: 1.4,
-                fontSize: 14,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 24),
-            if (buttonText != null && onButtonPressed != null)
+            if (buttonText != null && onButtonPressed != null) ...[
+              const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: onButtonPressed,
-                icon: const Icon(Icons.add_rounded, size: 20),
+                icon: const Icon(Icons.add, size: 16),
                 label: Text(buttonText!),
                 style: FilledButton.styleFrom(
-                  minimumSize: const Size(160, 48),
+                  visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(120, 36),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                 ),
               ),
+            ],
             if (onPasteUrl != null) ...[
-              const SizedBox(height: 12),
-              ActionChip(
-                avatar: const Icon(Icons.content_paste_rounded, size: 16),
-                label: const Text('Paste from clipboard'),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
                 onPressed: () async {
-                  // Explicit user tap only - never read clipboard in background
                   final data = await Clipboard.getData(Clipboard.kTextPlain);
                   final text = data?.text?.trim() ?? '';
-                  if (text.startsWith('http://') || text.startsWith('https://')) {
+                  if (text.startsWith('http://') ||
+                      text.startsWith('https://')) {
                     onPasteUrl!(text);
                   } else {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Clipboard does not contain a valid URL'),
+                          content: Text(
+                            'Clipboard does not contain a valid URL',
+                          ),
                           duration: Duration(seconds: 2),
                         ),
                       );
                     }
                   }
                 },
+                icon: const Icon(Icons.content_paste_outlined, size: 14),
+                label: const Text('Paste from clipboard'),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(120, 32),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
               ),
             ],
           ],

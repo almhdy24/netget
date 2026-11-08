@@ -70,8 +70,11 @@ class DiskSpaceException implements Exception {
 bool _isEnospc(Object error) {
   if (error is FileSystemException) {
     if (error.osError?.errorCode == 28) return true;
-    final msg = '${error.message} ${error.osError?.message ?? ''}'.toLowerCase();
-    if (msg.contains('no space left') || msg.contains('enospc') || msg.contains('disk full')) {
+    final msg = '${error.message} ${error.osError?.message ?? ''}'
+        .toLowerCase();
+    if (msg.contains('no space left') ||
+        msg.contains('enospc') ||
+        msg.contains('disk full')) {
       return true;
     }
   }
@@ -232,7 +235,13 @@ class MultiConnectionDownloader {
   final int maxConnectionsPerHost;
   final HostConnectionPool hostPool;
   final HttpClient Function() clientFactory;
-  final void Function(int downloadedBytes, int totalBytes, double speedBytesPerSec, List<DownloadSegment> segments)? onProgress;
+  final void Function(
+    int downloadedBytes,
+    int totalBytes,
+    double speedBytesPerSec,
+    List<DownloadSegment> segments,
+  )?
+  onProgress;
   final Future<void> Function(List<DownloadSegment> segments)? onCheckpoint;
   final void Function(String level, String message)? onLog;
   final DiskSpaceChecker? diskSpaceChecker;
@@ -290,11 +299,19 @@ class MultiConnectionDownloader {
     onLog?.call(level, msg);
   }
 
-  Duration calculateRetryDelayForTesting(int statusCode, String? retryAfterHeader, int attempt) {
+  Duration calculateRetryDelayForTesting(
+    int statusCode,
+    String? retryAfterHeader,
+    int attempt,
+  ) {
     return _calculateRetryDelay(statusCode, retryAfterHeader, attempt);
   }
 
-  Duration _calculateRetryDelay(int statusCode, String? retryAfterHeader, int attempt) {
+  Duration _calculateRetryDelay(
+    int statusCode,
+    String? retryAfterHeader,
+    int attempt,
+  ) {
     if (retryAfterHeader != null) {
       final seconds = int.tryParse(retryAfterHeader);
       if (seconds != null) {
@@ -304,7 +321,9 @@ class MultiConnectionDownloader {
         final date = HttpDate.parse(retryAfterHeader);
         final diff = date.difference(DateTime.now());
         if (!diff.isNegative) {
-          return diff > const Duration(seconds: 60) ? const Duration(seconds: 60) : diff;
+          return diff > const Duration(seconds: 60)
+              ? const Duration(seconds: 60)
+              : diff;
         }
       } catch (_) {}
     }
@@ -340,16 +359,25 @@ class MultiConnectionDownloader {
           return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
         }
 
-        if (statusCode == HttpStatus.tooManyRequests || statusCode == HttpStatus.serviceUnavailable) {
+        if (statusCode == HttpStatus.tooManyRequests ||
+            statusCode == HttpStatus.serviceUnavailable) {
           if (attempt >= maxRetries) {
-            throw HttpException('Server returned HTTP $statusCode after $maxRetries retries', uri: uri);
+            throw HttpException(
+              'Server returned HTTP $statusCode after $maxRetries retries',
+              uri: uri,
+            );
           }
-          final retryAfter = response.headers.value(HttpHeaders.retryAfterHeader);
+          final retryAfter = response.headers.value(
+            HttpHeaders.retryAfterHeader,
+          );
           final delay = _calculateRetryDelay(statusCode, retryAfter, attempt);
-          _log('WARN', 'Probe returned HTTP $statusCode. Retrying in ${delay.inMilliseconds}ms (attempt ${attempt + 1}/$maxRetries)...');
+          _log(
+            'WARN',
+            'Probe returned HTTP $statusCode. Retrying in ${delay.inMilliseconds}ms (attempt ${attempt + 1}/$maxRetries)...',
+          );
           await response.drain<void>();
           attempt++;
-          await Future.delayed(delay);
+          await Future<void>.delayed(delay);
           continue;
         }
 
@@ -361,7 +389,9 @@ class MultiConnectionDownloader {
         int length = -1;
 
         if (hasRange) {
-          final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+          final contentRange = response.headers.value(
+            HttpHeaders.contentRangeHeader,
+          );
           if (contentRange != null && contentRange.contains('/')) {
             final totalStr = contentRange.split('/').last.trim();
             length = int.tryParse(totalStr) ?? -1;
@@ -371,7 +401,9 @@ class MultiConnectionDownloader {
         }
 
         final serverEtag = response.headers.value(HttpHeaders.etagHeader);
-        final serverLastModified = response.headers.value(HttpHeaders.lastModifiedHeader);
+        final serverLastModified = response.headers.value(
+          HttpHeaders.lastModifiedHeader,
+        );
 
         // Drain probe response body
         await response.drain<void>();
@@ -438,7 +470,10 @@ class MultiConnectionDownloader {
         final checker = diskSpaceChecker ?? defaultDiskSpaceChecker;
         final freeBytes = await checker(file.parent.path);
         if (freeBytes == null) {
-          _log('WARN', 'Free disk space check returned unknown/null on Android; proceeding with download');
+          _log(
+            'WARN',
+            'Free disk space check returned unknown/null on Android; proceeding with download',
+          );
         } else if (freeBytes < totalBytes) {
           throw FileSystemException(
             'Insufficient disk space: need $totalBytes bytes, but only $freeBytes bytes available',
@@ -460,9 +495,14 @@ class MultiConnectionDownloader {
 
       // Step 3: Segment Planning with global per-host connection limiter
       final availableSlots = hostPool.availableSlots(uri.host);
-      final hostCap = min(maxConnectionsPerHost, hostPool.maxConnectionsPerHost);
+      final hostCap = min(
+        maxConnectionsPerHost,
+        hostPool.maxConnectionsPerHost,
+      );
       final effectiveConnections = (isRangeSupported && totalBytes > 256 * 1024)
-          ? connectionCount.clamp(1, max(1, min(availableSlots, hostCap))).toInt()
+          ? connectionCount
+                .clamp(1, max(1, min(availableSlots, hostCap)))
+                .toInt()
           : 1;
 
       if (segments.isEmpty) {
@@ -491,7 +531,10 @@ class MultiConnectionDownloader {
           bytesSinceTick = 0;
           lastEmitTime = now;
 
-          final totalDownloaded = segments.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+          final totalDownloaded = segments.fold<int>(
+            0,
+            (sum, s) => sum + s.downloadedBytes,
+          );
           onProgress?.call(totalDownloaded, totalBytes, speed, segments);
         }
       }
@@ -537,9 +580,15 @@ class MultiConnectionDownloader {
       await resetRaf.truncate(0);
       await resetRaf.close();
 
-      if (resetEx.newEtag != null) etag = resetEx.newEtag;
-      if (resetEx.newLastModified != null) lastModified = resetEx.newLastModified;
-      if (resetEx.newTotalBytes != null && resetEx.newTotalBytes! > 0) totalBytes = resetEx.newTotalBytes!;
+      if (resetEx.newEtag != null) {
+        etag = resetEx.newEtag;
+      }
+      if (resetEx.newLastModified != null) {
+        lastModified = resetEx.newLastModified;
+      }
+      if (resetEx.newTotalBytes != null && resetEx.newTotalBytes! > 0) {
+        totalBytes = resetEx.newTotalBytes!;
+      }
       segments.clear();
 
       return start();
@@ -549,7 +598,10 @@ class MultiConnectionDownloader {
     }
 
     if (!_isPaused && !_isCancelled) {
-      final totalDownloaded = segments.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+      final totalDownloaded = segments.fold<int>(
+        0,
+        (sum, s) => sum + s.downloadedBytes,
+      );
       onProgress?.call(totalDownloaded, totalBytes, 0.0, segments);
       _log('INFO', 'All segments completed successfully.');
     }
@@ -562,8 +614,12 @@ class MultiConnectionDownloader {
   ) async {
     int retryCount = 0;
     const int maxRetries = 3;
+    final segIdx = segment.index;
 
-    while (!segment.isFinished && !_isPaused && !_isCancelled) {
+    while (!_isPaused && !_isCancelled) {
+      final currentSeg = segments[segIdx];
+      if (currentSeg.isFinished) break;
+
       final client = clientFactory();
       _activeClients.add(client);
       final releaseHostSlot = hostPool.acquire(uri.host);
@@ -574,8 +630,8 @@ class MultiConnectionDownloader {
         request.headers.set(HttpHeaders.userAgentHeader, _defaultUserAgent);
         request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
 
-        final startOffset = segment.currentOffset;
-        final endOffset = segment.endByte;
+        final startOffset = currentSeg.currentOffset;
+        final endOffset = currentSeg.endByte;
 
         // RFC 7232 § 2.3 & RFC 7233 § 3.2: Only strong ETag (not starting with W/) or Last-Modified
         String? ifRangeValidator;
@@ -594,7 +650,10 @@ class MultiConnectionDownloader {
         }
 
         if (isRangeSupported && endOffset >= startOffset) {
-          request.headers.set(HttpHeaders.rangeHeader, 'bytes=$startOffset-$endOffset');
+          request.headers.set(
+            HttpHeaders.rangeHeader,
+            'bytes=$startOffset-$endOffset',
+          );
           if (ifRangeValidator != null) {
             request.headers.set(HttpHeaders.ifRangeHeader, ifRangeValidator);
           }
@@ -603,16 +662,29 @@ class MultiConnectionDownloader {
         final response = await request.close();
         final statusCode = response.statusCode;
 
-        if (statusCode == HttpStatus.tooManyRequests || statusCode == HttpStatus.serviceUnavailable) {
+        if (statusCode == HttpStatus.tooManyRequests ||
+            statusCode == HttpStatus.serviceUnavailable) {
           if (retryCount >= maxRetries) {
-            throw HttpException('HTTP $statusCode after $maxRetries retries', uri: uri);
+            throw HttpException(
+              'HTTP $statusCode after $maxRetries retries',
+              uri: uri,
+            );
           }
-          final retryAfter = response.headers.value(HttpHeaders.retryAfterHeader);
-          final delay = _calculateRetryDelay(statusCode, retryAfter, retryCount);
-          _log('WARN', 'Worker received HTTP $statusCode. Retrying in ${delay.inMilliseconds}ms (attempt ${retryCount + 1}/$maxRetries)...');
+          final retryAfter = response.headers.value(
+            HttpHeaders.retryAfterHeader,
+          );
+          final delay = _calculateRetryDelay(
+            statusCode,
+            retryAfter,
+            retryCount,
+          );
+          _log(
+            'WARN',
+            'Worker received HTTP $statusCode. Retrying in ${delay.inMilliseconds}ms (attempt ${retryCount + 1}/$maxRetries)...',
+          );
           retryCount++;
           await response.drain<void>();
-          await Future.delayed(delay);
+          await Future<void>.delayed(delay);
           continue;
         }
 
@@ -622,7 +694,10 @@ class MultiConnectionDownloader {
         // Check for ETag validation across connections
         final respEtag = response.headers.value(HttpHeaders.etagHeader);
         if (etag != null && respEtag != null && respEtag != etag) {
-          throw HttpException('Server file changed (ETag mismatch: $respEtag vs $etag)', uri: uri);
+          throw HttpException(
+            'Server file changed (ETag mismatch: $respEtag vs $etag)',
+            uri: uri,
+          );
         }
 
         if (statusCode == HttpStatus.requestedRangeNotSatisfiable) {
@@ -632,7 +707,7 @@ class MultiConnectionDownloader {
               uri: uri,
             );
           }
-          segment.isCompleted = true;
+          segments[segIdx] = segments[segIdx].copyWith(isCompleted: true);
           return;
         }
 
@@ -641,7 +716,9 @@ class MultiConnectionDownloader {
             // RFC 7233 § 3.2: Server ignored Range or If-Range validator failed -> returned entire representation (200 OK).
             // Clean restart from byte 0 rather than error loop!
             final serverEtag = response.headers.value(HttpHeaders.etagHeader);
-            final serverLastMod = response.headers.value(HttpHeaders.lastModifiedHeader);
+            final serverLastMod = response.headers.value(
+              HttpHeaders.lastModifiedHeader,
+            );
             final serverLen = response.contentLength;
             await response.drain<void>();
             throw _ServerResetToZeroException(
@@ -655,7 +732,9 @@ class MultiConnectionDownloader {
 
         if (statusCode == HttpStatus.partialContent) {
           // Validate 206 Content-Range start equals requested start
-          final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+          final contentRange = response.headers.value(
+            HttpHeaders.contentRangeHeader,
+          );
           if (contentRange != null && contentRange.startsWith('bytes ')) {
             final rangePart = contentRange.substring(6).split('/')[0].trim();
             final rangeParts = rangePart.split('-');
@@ -672,8 +751,12 @@ class MultiConnectionDownloader {
           }
         }
 
-        if (statusCode != HttpStatus.partialContent && statusCode != HttpStatus.ok) {
-          throw HttpException('HTTP $statusCode: ${response.reasonPhrase}', uri: uri);
+        if (statusCode != HttpStatus.partialContent &&
+            statusCode != HttpStatus.ok) {
+          throw HttpException(
+            'HTTP $statusCode: ${response.reasonPhrase}',
+            uri: uri,
+          );
         }
 
         await for (final chunk in response) {
@@ -681,23 +764,26 @@ class MultiConnectionDownloader {
             break;
           }
 
-          // Write chunk at current offset
-          final writeOffset = segment.currentOffset;
+          final segNow = segments[segIdx];
+          final writeOffset = segNow.currentOffset;
           await _writer?.writeAt(writeOffset, chunk);
 
-          segment.downloadedBytes += chunk.length;
+          segments[segIdx] = segNow.copyWith(
+            downloadedBytes: segNow.downloadedBytes + chunk.length,
+          );
           onChunk(chunk.length);
 
-          if (segment.isFinished) {
+          if (segments[segIdx].isFinished) {
             break;
           }
         }
 
-        if (segment.remainingBytes <= 0 && segment.endByte >= 0) {
-          segment.isCompleted = true;
+        final finalSeg = segments[segIdx];
+        if (finalSeg.remainingBytes <= 0 && finalSeg.endByte >= 0) {
+          segments[segIdx] = finalSeg.copyWith(isCompleted: true);
         } else if (!_isPaused && !_isCancelled) {
           throw HttpException(
-            'Incomplete segment transfer: ${segment.remainingBytes} bytes remaining',
+            'Incomplete segment transfer: ${finalSeg.remainingBytes} bytes remaining',
             uri: uri,
           );
         }

@@ -28,7 +28,11 @@ class MockEnospcRaf implements RandomAccessFile {
   }
 
   @override
-  Future<RandomAccessFile> writeFrom(List<int> buffer, [int start = 0, int? end]) async {
+  Future<RandomAccessFile> writeFrom(
+    List<int> buffer, [
+    int start = 0,
+    int? end,
+  ]) async {
     if (failOnWrite) {
       throw const FileSystemException(
         'writeFrom failed',
@@ -57,6 +61,7 @@ class InMemoryTaskRepo implements DownloadRepository {
   Future<void> saveTasks(List<DownloadTask> newTasks) async {
     tasks = List.from(newTasks);
   }
+
   @override
   Future<void> saveTask(DownloadTask task) async {
     final idx = tasks.indexWhere((t) => t.id == task.id);
@@ -66,6 +71,7 @@ class InMemoryTaskRepo implements DownloadRepository {
       tasks.add(task);
     }
   }
+
   @override
   Future<void> deleteTask(String id) async {
     tasks.removeWhere((t) => t.id == id);
@@ -98,85 +104,106 @@ void main() {
     }
   });
 
-  test('Disk Space: Unknown free space (null from df) does not block download', () async {
-    final saveFile = File('${tempDir.path}/null_space.bin');
-    final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
+  test(
+    'Disk Space: Unknown free space (null from df) does not block download',
+    () async {
+      final saveFile = File('${tempDir.path}/null_space.bin');
+      final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
 
-    final downloader = MultiConnectionDownloader(
-      id: 'null_space_test',
-      uri: uri,
-      savePath: saveFile.path,
-      connectionCount: 1,
-      clientFactory: () => HttpClient(),
-      // df returned null (unparseable / permission restricted on Android)
-      diskSpaceChecker: (path) async => null,
-    );
+      final downloader = MultiConnectionDownloader(
+        id: 'null_space_test',
+        uri: uri,
+        savePath: saveFile.path,
+        connectionCount: 1,
+        clientFactory: () => HttpClient(),
+        // df returned null (unparseable / permission restricted on Android)
+        diskSpaceChecker: (path) async => null,
+      );
 
-    // Must proceed with download rather than throwing Insufficient disk space
-    await downloader.start();
+      // Must proceed with download rather than throwing Insufficient disk space
+      await downloader.start();
 
-    expect(await saveFile.exists(), isTrue);
-    final downloadedBytes = await saveFile.readAsBytes();
-    expect(downloadedBytes.length, equals(server.testData.length));
-  });
+      expect(await saveFile.exists(), isTrue);
+      final downloadedBytes = await saveFile.readAsBytes();
+      expect(downloadedBytes.length, equals(server.testData.length));
+    },
+  );
 
-  test('Disk Space: ENOSPC (errno 28) during truncate surfaces DiskSpaceException', () async {
-    final saveFile = File('${tempDir.path}/enospc_truncate.bin');
-    final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
+  test(
+    'Disk Space: ENOSPC (errno 28) during truncate surfaces DiskSpaceException',
+    () async {
+      final saveFile = File('${tempDir.path}/enospc_truncate.bin');
+      final uri = Uri.parse('http://127.0.0.1:${server.actualPort}/download');
 
-    final downloader = MultiConnectionDownloader(
-      id: 'enospc_truncate_test',
-      uri: uri,
-      savePath: saveFile.path,
-      connectionCount: 1,
-      clientFactory: () => HttpClient(),
-      writerFactory: (file) async {
-        return ConcurrentFileWriter(MockEnospcRaf(failOnTruncate: true));
-      },
-    );
+      final downloader = MultiConnectionDownloader(
+        id: 'enospc_truncate_test',
+        uri: uri,
+        savePath: saveFile.path,
+        connectionCount: 1,
+        clientFactory: () => HttpClient(),
+        writerFactory: (file) async {
+          return ConcurrentFileWriter(MockEnospcRaf(failOnTruncate: true));
+        },
+      );
 
-    await expectLater(
-      downloader.start(),
-      throwsA(predicate((e) => e is DiskSpaceException && e.message.contains('No space left on device'))),
-    );
-  });
+      await expectLater(
+        downloader.start(),
+        throwsA(
+          predicate(
+            (e) =>
+                e is DiskSpaceException &&
+                e.message.contains('No space left on device'),
+          ),
+        ),
+      );
+    },
+  );
 
-  test('Disk Space: ENOSPC (errno 28) during write surfaces clear localized error in DownloadManager', () async {
-    final repo = InMemoryTaskRepo();
-    final manager = DownloadManager(
-      repository: repo,
-      downloadsDirResolver: () async => tempDir,
-    );
-    await manager.init();
+  test(
+    'Disk Space: ENOSPC (errno 28) during write surfaces clear localized error in DownloadManager',
+    () async {
+      final repo = InMemoryTaskRepo();
+      final manager = DownloadManager(
+        repository: repo,
+        downloadsDirResolver: () async => tempDir,
+      );
+      await manager.init();
 
-    final task = await manager.addDownload(
-      url: 'http://127.0.0.1:${server.actualPort}/download',
-      startNow: false,
-    );
+      final task = await manager.addDownload(
+        url: 'http://127.0.0.1:${server.actualPort}/download',
+        startNow: false,
+      );
 
-    // Replace multiDownloader writer with EnospcFailingWriter
-    final downloader = MultiConnectionDownloader(
-      id: task.id,
-      uri: Uri.parse(task.url),
-      savePath: task.savePath,
-      connectionCount: 1,
-      clientFactory: () => HttpClient(),
-      writerFactory: (file) async {
-        return ConcurrentFileWriter(MockEnospcRaf(failOnWrite: true));
-      },
-    );
+      // Replace multiDownloader writer with EnospcFailingWriter
+      final downloader = MultiConnectionDownloader(
+        id: task.id,
+        uri: Uri.parse(task.url),
+        savePath: task.savePath,
+        connectionCount: 1,
+        clientFactory: () => HttpClient(),
+        writerFactory: (file) async {
+          return ConcurrentFileWriter(MockEnospcRaf(failOnWrite: true));
+        },
+      );
 
-    // Calling downloader.start() directly throws DiskSpaceException
-    await expectLater(
-      downloader.start(),
-      throwsA(predicate((e) => e is DiskSpaceException && e.message.contains('No space left on device'))),
-    );
+      // Calling downloader.start() directly throws DiskSpaceException
+      await expectLater(
+        downloader.start(),
+        throwsA(
+          predicate(
+            (e) =>
+                e is DiskSpaceException &&
+                e.message.contains('No space left on device'),
+          ),
+        ),
+      );
 
-    // Verify DownloadManager._cleanErrorMessage converts it to user-friendly message
-    final diskError = DiskSpaceException('No space left on device');
-    final cleanedMsg = manager.cleanErrorMessageForTesting(diskError);
-    expect(cleanedMsg, 'Storage is full');
+      // Verify DownloadManager._cleanErrorMessage converts it to user-friendly message
+      final diskError = DiskSpaceException('No space left on device');
+      final cleanedMsg = manager.cleanErrorMessageForTesting(diskError);
+      expect(cleanedMsg, 'Storage is full');
 
-    manager.dispose();
-  });
+      manager.dispose();
+    },
+  );
 }

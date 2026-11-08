@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NetGet</string>
+    <string name="notification_channel_progress">تقدم تنزيل NetGet</string>
+    <string name="notification_channel_progress_desc">يعرض سرعات التنزيل وتقدم العمليات المباشرة</string>
+    <string name="notification_channel_status">حالة عمليات NetGet</string>
+    <string name="notification_channel_status_desc">إشعار عند اكتمال أو فشل التنزيلات</string>
+    <string name="notification_download_complete">اكتمل التنزيل</string>
+    <string name="notification_download_failed">فشل التنزيل</string>
+    <string name="notification_paused_timeout">توقف التنزيل مؤقتاً (مهلة 6 ساعات للنظام)</string>
+    <string name="notification_paused_timeout_desc">اضغط لاستئناف التنزيلات النشطة</string>
+    <string name="notification_all_finished">اكتملت جميع العمليات</string>
+    <string name="notification_in_progress">قيد التنزيل</string>
+    <string name="notification_active_downloads">%1$d تنزيل نشط</string>
+    <string name="notification_action_pause">إيقاف مؤقت</string>
+    <string name="notification_action_resume">استئناف</string>
+    <string name="notification_action_cancel">إلغاء</string>
+</resources>

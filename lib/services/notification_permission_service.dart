@@ -13,8 +13,9 @@ enum NotificationPermissionStatus {
 }
 
 class NotificationPermissionService extends ChangeNotifier {
-  static const MethodChannel _defaultChannel =
-      MethodChannel('com.elmahdi.netget/engine');
+  static const MethodChannel _defaultChannel = MethodChannel(
+    'com.elmahdi.netget/engine',
+  );
 
   final MethodChannel channel;
 
@@ -24,7 +25,7 @@ class NotificationPermissionService extends ChangeNotifier {
       NotificationPermissionStatus.notDetermined;
 
   NotificationPermissionService({MethodChannel? channel})
-      : channel = channel ?? _defaultChannel;
+    : channel = channel ?? _defaultChannel;
 
   bool get hasPromptedThisSession => _hasPromptedThisSession;
   bool get bannerDismissed => _bannerDismissed;
@@ -50,8 +51,9 @@ class NotificationPermissionService extends ChangeNotifier {
   /// Checks current notification permission without prompting the user.
   Future<NotificationPermissionStatus> checkPermission() async {
     try {
-      final res =
-          await channel.invokeMethod<String>('checkNotificationPermission');
+      final res = await channel.invokeMethod<String>(
+        'checkNotificationPermission',
+      );
       _status = _parseStatus(res);
     } catch (e) {
       debugPrint('checkNotificationPermission error: $e');
@@ -65,8 +67,9 @@ class NotificationPermissionService extends ChangeNotifier {
   /// (Android 13+ / API 33+; verify in docs).
   Future<NotificationPermissionStatus> requestPermission() async {
     try {
-      final res =
-          await channel.invokeMethod<String>('requestNotificationPermission');
+      final res = await channel.invokeMethod<String>(
+        'requestNotificationPermission',
+      );
       _status = _parseStatus(res);
     } catch (e) {
       debugPrint('requestNotificationPermission error: $e');
@@ -138,10 +141,9 @@ class NotificationPermissionService extends ChangeNotifier {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Theme.of(ctx)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: 0.12),
+                        color: Theme.of(
+                          ctx,
+                        ).colorScheme.primary.withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -169,10 +171,9 @@ class NotificationPermissionService extends ChangeNotifier {
                   style: TextStyle(
                     fontSize: 14,
                     height: 1.4,
-                    color: Theme.of(ctx)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.8),
+                    color: Theme.of(
+                      ctx,
+                    ).colorScheme.onSurface.withValues(alpha: 0.8),
                   ),
                 ),
                 const SizedBox(height: 20),

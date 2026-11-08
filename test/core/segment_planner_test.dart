@@ -3,88 +3,112 @@ import 'package:netget/core/segment_planner.dart';
 
 void main() {
   group('SegmentPlanner', () {
-    test('creates single segment if totalBytes <= 0 or not resumable', () {
-      final segs1 = SegmentPlanner.planInitialSegments(
-        totalBytes: -1,
-        connectionCount: 4,
-        resumable: true,
-      );
-      expect(segs1.length, 1);
-      expect(segs1.first.startByte, 0);
-      expect(segs1.first.endByte, -1);
-
-      final segs2 = SegmentPlanner.planInitialSegments(
-        totalBytes: 1000000,
-        connectionCount: 4,
-        resumable: false,
-      );
-      expect(segs2.length, 1);
-      expect(segs2.first.startByte, 0);
-      expect(segs2.first.endByte, 999999);
-    });
-
-    test('partitions totalBytes evenly across connection count', () {
-      final total = 4 * 1024 * 1024; // 4 MB
-      final segs = SegmentPlanner.planInitialSegments(
-        totalBytes: total,
-        connectionCount: 4,
-        resumable: true,
-      );
-
-      expect(segs.length, 4);
-      expect(segs[0].startByte, 0);
-      expect(segs[0].endByte, 1048576 - 1);
-      expect(segs[3].endByte, total - 1);
-
-      // Verify contiguous bytes without gaps or overlaps
-      for (var i = 0; i < segs.length - 1; i++) {
-        expect(segs[i].endByte + 1, segs[i + 1].startByte);
-      }
-    });
-
     test(
-      'splitLargestSegment dynamically splits candidate remaining bytes in half',
+      'planInitialSegments returns single segment for totalBytes <= 0 or non-resumable',
       () {
-        final seg1 = DownloadSegment(
-          index: 0,
-          startByte: 0,
-          endByte: 1048575,
-          downloadedBytes: 1048576, // Finished
-          isCompleted: true,
+        final s1 = SegmentPlanner.planInitialSegments(
+          totalBytes: -1,
+          connectionCount: 4,
+          resumable: true,
         );
-        final seg2 = DownloadSegment(
-          index: 1,
-          startByte: 1048576,
-          endByte: 3145727, // 2 MB total, 0 downloaded
-          downloadedBytes: 0,
+        expect(s1.length, 1);
+        expect(s1.first.startByte, 0);
+        expect(s1.first.endByte, -1);
+
+        final s2 = SegmentPlanner.planInitialSegments(
+          totalBytes: 1000000,
+          connectionCount: 4,
+          resumable: false,
         );
-
-        final segments = [seg1, seg2];
-        final newSeg = SegmentPlanner.splitLargestSegment(
-          segments,
-          minThreshold: 256 * 1024,
-        );
-
-        expect(newSeg, isNotNull);
-        expect(segments.length, 3);
-
-        // Candidate endByte should be truncated, new segment takes upper half
-        expect(seg2.endByte + 1, newSeg!.startByte);
-        expect(newSeg.endByte, 3145727);
+        expect(s2.length, 1);
+        expect(s2.first.startByte, 0);
+        expect(s2.first.endByte, 999999);
       },
     );
 
-    test('returns null when remaining bytes are smaller than threshold', () {
-      final seg = DownloadSegment(
+    test(
+      'planInitialSegments partitions large file into multiple contiguous ranges',
+      () {
+        final total = 1024 * 1024 * 4; // 4 MB
+        final segments = SegmentPlanner.planInitialSegments(
+          totalBytes: total,
+          connectionCount: 4,
+          resumable: true,
+        );
+        expect(segments.length, 4);
+        expect(segments.first.startByte, 0);
+        expect(segments.last.endByte, total - 1);
+
+        // Verify contiguity
+        for (var i = 0; i < segments.length - 1; i++) {
+          expect(segments[i].endByte + 1, segments[i + 1].startByte);
+        }
+      },
+    );
+
+    test('DownloadSegment is immutable', () {
+      const seg = DownloadSegment(
         index: 0,
         startByte: 0,
-        endByte: 10000,
-        downloadedBytes: 9000,
+        endByte: 1000,
+        downloadedBytes: 100,
       );
-      final result = SegmentPlanner.splitLargestSegment([
-        seg,
-      ], minThreshold: 256 * 1024);
-      expect(result, isNull);
+      final updated = seg.copyWith(downloadedBytes: 200);
+      expect(seg.downloadedBytes, 100);
+      expect(updated.downloadedBytes, 200);
     });
+
+    test(
+      'splitLargestSegment produces a new segment and does not mutate input',
+      () {
+        final initialSegments = [
+          const DownloadSegment(
+            index: 0,
+            startByte: 0,
+            endByte: 1000000,
+            downloadedBytes: 100000,
+          ),
+        ];
+
+        final result = SegmentPlanner.splitLargestSegment(
+          initialSegments,
+          minThreshold: 256 * 1024,
+        );
+
+        expect(result, isNotNull);
+        // Input list should remain unmodified
+        expect(initialSegments.length, 1);
+        expect(initialSegments.first.endByte, 1000000);
+
+        // Output segments should have 2 segments
+        expect(result!.segments.length, 2);
+        final first = result.segments[0];
+        final second = result.segments[1];
+        expect(first.endByte + 1, second.startByte);
+        expect(second.endByte, 1000000);
+        expect(result.newSegment, second);
+      },
+    );
+
+    test(
+      'splitLargestSegment returns null when remaining bytes < minThreshold',
+      () {
+        final initialSegments = [
+          const DownloadSegment(
+            index: 0,
+            startByte: 0,
+            endByte: 1000,
+            downloadedBytes: 900,
+          ),
+        ];
+
+        final result = SegmentPlanner.splitLargestSegment(
+          initialSegments,
+          minThreshold: 256 * 1024,
+        );
+
+        expect(result, isNull);
+      },
+    );
   });
 }

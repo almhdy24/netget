@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -112,7 +113,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
     if (text.isNotEmpty) {
       _urlController.text = text;
       _onUrlChanged();
-      _checkForDuplicateAndAnalyze(text);
+      unawaited(_checkForDuplicateAndAnalyze(text));
     }
   }
 
@@ -307,12 +308,10 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
     final isResumable = analysis?.resumable ?? true;
 
     return Container(
-      constraints: BoxConstraints(
-        maxHeight: mediaQuery.size.height * 0.88,
-      ),
+      constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.88),
       decoration: BoxDecoration(
-        color: isDark ? NetGetTheme.brandNavy : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       ),
       padding: EdgeInsets.fromLTRB(20, 14, 20, effectiveBottomPadding),
       child: SingleChildScrollView(
@@ -518,9 +517,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Flexible(
-                        child: _buildResumeChip(context, isResumable),
-                      ),
+                      Flexible(child: _buildResumeChip(context, isResumable)),
                     ],
                   ),
                   const Divider(height: 16),
@@ -564,7 +561,9 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                                         Flexible(
                                           child: Text(
                                             cat.label,
-                                            style: const TextStyle(fontSize: 12),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                            ),
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
@@ -613,12 +612,17 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                     const Expanded(
                       child: Text(
                         'Connections (multi-connection beta):',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _connections == 1 ? '1 connection' : '$_connections connections',
+                      _connections == 1
+                          ? '1 connection'
+                          : '$_connections connections',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
@@ -726,14 +730,13 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
   }
 
   Widget _buildResumeChip(BuildContext context, bool isResumable) {
-    final color = isResumable
-        ? NetGetTheme.brandGreen
-        : NetGetTheme.warningAmber;
+    final statusColors = Theme.of(context).statusColors;
+    final color = isResumable ? statusColors.completed : statusColors.warning;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(

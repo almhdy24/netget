@@ -90,17 +90,22 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "startDownload" -> {
+                    val service = downloadService
+                    if (service == null) {
+                        result.error("SERVICE_UNBOUND", "Download service is not yet connected", null)
+                        return@setMethodCallHandler
+                    }
                     val id = call.argument<String>("id") ?: ""
                     val url = call.argument<String>("url") ?: ""
                     val fileName = call.argument<String>("fileName") ?: ""
                     val savePath = call.argument<String>("savePath") ?: ""
                     val totalBytes = (call.argument<Number>("totalBytes") ?: -1).toLong()
-                    val connections = call.argument<Int>("connections") ?: 4
+                    val connections = call.argument<Int>("connections") ?: 1
                     val category = call.argument<String>("category") ?: "other"
                     val etag = call.argument<String>("etag")
                     val lastModified = call.argument<String>("lastModified")
 
-                    downloadService?.startDownload(id, url, fileName, savePath, totalBytes, connections, category, etag, lastModified)
+                    service.startDownload(id, url, fileName, savePath, totalBytes, connections, category, etag, lastModified)
                     result.success(true)
                 }
                 "pauseDownload" -> {
@@ -121,6 +126,11 @@ class MainActivity : FlutterActivity() {
                 "setSpeedLimit" -> {
                     val limit = (call.argument<Number>("bytesPerSec") ?: 0).toLong()
                     downloadService?.globalSpeedLimitBytesPerSec = limit
+                    result.success(true)
+                }
+                "setSoundsEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: true
+                    downloadService?.notificationHelper?.setSoundsEnabled(enabled)
                     result.success(true)
                 }
                 "getPendingIntentUrl" -> {
@@ -144,8 +154,6 @@ class MainActivity : FlutterActivity() {
                         )
                         result.success(true)
                     } catch (e: Exception) {
-                        // Catches ForegroundServiceStartNotAllowedException (Android 12+ / API 31+)
-                        // and any SecurityException or generic runtime error (verify in docs)
                         result.error(
                             "FGS_NOT_ALLOWED",
                             "Foreground service update failed: ${e.message}",
@@ -173,7 +181,6 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "checkNotificationPermission" -> {
-                    // Android 13+ (API 33+) requires runtime POST_NOTIFICATIONS (verify in docs)
                     if (Build.VERSION.SDK_INT >= 33) {
                         val isGranted = ContextCompat.checkSelfPermission(
                             this,
@@ -189,13 +196,11 @@ class MainActivity : FlutterActivity() {
                             result.success(if (shouldShow) "denied" else "not_determined")
                         }
                     } else {
-                        // On Android < 33, notifications are enabled by default unless user turned them off (verify in docs)
                         val enabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
                         result.success(if (enabled) "granted" else "denied")
                     }
                 }
                 "requestNotificationPermission" -> {
-                    // Android 13+ (API 33+) requires runtime POST_NOTIFICATIONS (verify in docs)
                     if (Build.VERSION.SDK_INT >= 33) {
                         val isGranted = ContextCompat.checkSelfPermission(
                             this,
@@ -212,7 +217,6 @@ class MainActivity : FlutterActivity() {
                             )
                         }
                     } else {
-                        // Android < 33 does not require runtime prompt (verify in docs)
                         val enabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
                         result.success(if (enabled) "granted" else "denied")
                     }
@@ -265,7 +269,6 @@ class MainActivity : FlutterActivity() {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 res?.success("granted")
             } else {
-                // If denied, determine if permanently denied (verify in docs: shouldShowRequestPermissionRationale is false when user selected Don't ask again or permanently denied)
                 val shouldShow = if (Build.VERSION.SDK_INT >= 33) {
                     ActivityCompat.shouldShowRequestPermissionRationale(
                         this,

@@ -41,7 +41,9 @@ Future<void> main() async {
 
       final elapsedMs = stopwatch.elapsedMilliseconds;
       final elapsedSec = elapsedMs / 1000.0;
-      final throughputMBps = (testFileSize / (1024 * 1024)) / (elapsedSec > 0 ? elapsedSec : 0.001);
+      final throughputMBps =
+          (testFileSize / (1024 * 1024)) /
+          (elapsedSec > 0 ? elapsedSec : 0.001);
 
       // Verify file integrity
       final downloadedBytes = await saveFile.readAsBytes();
@@ -66,15 +68,25 @@ Future<void> main() async {
       };
       results.add(result);
 
-      print('[$connCount conn] ${elapsedMs}ms | ${throughputMBps.toStringAsFixed(2)} MB/s | Mem delta: ${result['memDeltaKB']} KB | Integrity: ${isMatch ? "VERIFIED (100% SHA match)" : "CORRUPTED"}');
+      print(
+        '[$connCount conn] ${elapsedMs}ms | ${throughputMBps.toStringAsFixed(2)} MB/s | Mem delta: ${result['memDeltaKB']} KB | Integrity: ${isMatch ? "VERIFIED (100% SHA match)" : "CORRUPTED"}',
+      );
       await saveFile.delete();
     }
 
     print('\n==================== BENCHMARK SUMMARY ====================');
-    print('| Connections | Time (ms) | Throughput (MB/s) | Segments | Memory Δ | Integrity |');
-    print('|:-----------:|:---------:|:-----------------:|:--------:|:--------:|:---------:|');
+    print(
+      '| Connections | Time (ms) | Throughput (MB/s) | Segments | Memory Δ | Integrity |',
+    );
+    print(
+      '|:-----------:|:---------:|:-----------------:|:--------:|:--------:|:---------:|',
+    );
     for (final r in results) {
-      print('| ${r['connections'].toString().padLeft(11)} | ${r['timeMs'].toString().padLeft(9)} | ${r['throughputMBps'].toStringAsFixed(2).padLeft(17)} | ${r['segments'].toString().padLeft(8)} | ${(r['memDeltaKB'].toString() + " KB").padLeft(8)} | ${r['verifiedIntegrity'] ? "PASS (0 bit err)" : "FAIL"} |');
+      final verified = r['verifiedIntegrity'] == true;
+      final throughput = (r['throughputMBps'] as num).toDouble();
+      print(
+        '| ${r['connections'].toString().padLeft(11)} | ${r['timeMs'].toString().padLeft(9)} | ${throughput.toStringAsFixed(2).padLeft(17)} | ${r['segments'].toString().padLeft(8)} | ${(r['memDeltaKB'].toString() + " KB").padLeft(8)} | ${verified ? "PASS (0 bit err)" : "FAIL"} |',
+      );
     }
     print('===========================================================\n');
   } finally {

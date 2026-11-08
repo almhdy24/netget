@@ -55,7 +55,7 @@ class DownloadDatabaseHelper(context: Context) :
                 $COL_SPEED REAL NOT NULL DEFAULT 0.0,
                 $COL_RESUMABLE INTEGER NOT NULL DEFAULT 1,
                 $COL_CATEGORY TEXT NOT NULL DEFAULT 'other',
-                $COL_CONNECTIONS INTEGER NOT NULL DEFAULT 4,
+                $COL_CONNECTIONS INTEGER NOT NULL DEFAULT 1,
                 $COL_ETAG TEXT,
                 $COL_LAST_MODIFIED TEXT,
                 $COL_REFERRER TEXT,
@@ -83,9 +83,11 @@ class DownloadDatabaseHelper(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_SEGMENTS")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_TASKS")
-        onCreate(db)
+        for (version in (oldVersion + 1)..newVersion) {
+            when (version) {
+                // Incremental schema migrations go here (ALTER TABLE)
+            }
+        }
     }
 
     fun upsertTask(taskValues: ContentValues) {
@@ -117,7 +119,14 @@ class DownloadDatabaseHelper(context: Context) :
     }
 
     fun deleteTask(id: String) {
-        writableDatabase.delete(TABLE_SEGMENTS, "$COL_SEG_TASK_ID = ?", arrayOf(id))
-        writableDatabase.delete(TABLE_TASKS, "$COL_ID = ?", arrayOf(id))
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(TABLE_SEGMENTS, "$COL_SEG_TASK_ID = ?", arrayOf(id))
+            db.delete(TABLE_TASKS, "$COL_ID = ?", arrayOf(id))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 }

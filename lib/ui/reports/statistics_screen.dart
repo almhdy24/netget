@@ -34,10 +34,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     final tasks = widget.manager.tasks;
 
     final totalTasks = tasks.length;
-    final completedTasks = tasks.where((t) => t.status == DownloadStatus.completed).toList();
-    final failedTasks = tasks.where((t) => t.status == DownloadStatus.failed).toList();
+    final completedTasks = tasks
+        .where((t) => t.status == DownloadStatus.completed)
+        .toList();
+    final failedTasks = tasks
+        .where((t) => t.status == DownloadStatus.failed)
+        .toList();
 
-    final totalDownloadedBytes = tasks.fold<int>(0, (sum, t) => sum + t.downloadedBytes);
+    final totalDownloadedBytes = tasks.fold<int>(
+      0,
+      (sum, t) => sum + t.downloadedBytes,
+    );
 
     final successRate = totalTasks > 0
         ? ((completedTasks.length / totalTasks) * 100).toStringAsFixed(1)
@@ -61,7 +68,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     // Daily activity for the past 7 days
     final now = DateTime.now();
     final List<_DayActivity> past7Days = List.generate(7, (i) {
-      final day = DateTime(now.year, now.month, now.day).subtract(Duration(days: 6 - i));
+      final day = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(Duration(days: 6 - i));
       final count = tasks.where((t) {
         final d = t.createdAt;
         return d.year == day.year && d.month == day.month && d.day == day.day;
@@ -69,11 +80,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       return _DayActivity(date: day, count: count);
     });
 
-    final maxDayCount = past7Days.fold<int>(1, (max, d) => d.count > max ? d.count : max);
+    final maxDayCount = past7Days.fold<int>(
+      1,
+      (max, d) => d.count > max ? d.count : max,
+    );
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isArabic ? 'إحصائيات وتقارير التحميل' : 'Statistics & Reports'),
+        title: Text(
+          isArabic ? 'إحصائيات وتقارير التحميل' : 'Statistics & Reports',
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -84,7 +100,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               Expanded(
                 child: _buildMetricCard(
                   context,
-                  title: isArabic ? 'إجمالي البيانات المحملة' : 'Total Data Transferred',
+                  title: isArabic
+                      ? 'إجمالي البيانات المحملة'
+                      : 'Total Data Transferred',
                   value: NetGetUtils.formatBytes(totalDownloadedBytes),
                   icon: Icons.data_usage_rounded,
                   color: theme.colorScheme.primary,
@@ -108,7 +126,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               Expanded(
                 child: _buildMetricCard(
                   context,
-                  title: isArabic ? 'التحميلات المكتملة' : 'Completed Downloads',
+                  title: isArabic
+                      ? 'التحميلات المكتملة'
+                      : 'Completed Downloads',
                   value: '${completedTasks.length} / $totalTasks',
                   icon: Icons.check_circle_outline_rounded,
                   color: NetGetTheme.brandCyan,
@@ -135,7 +155,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
               side: BorderSide(
-                color: isDark ? const Color(0xFF2E333B) : const Color(0xFFE2E6EC),
+                color: isDark
+                    ? const Color(0xFF2E333B)
+                    : const Color(0xFFE2E6EC),
               ),
             ),
             child: Padding(
@@ -145,11 +167,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.calendar_view_week_rounded, size: 18, color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.calendar_view_week_rounded,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Text(
-                        isArabic ? 'النشاط خلال آخر 7 أيام' : 'Activity (Last 7 Days)',
-                        style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                        isArabic
+                            ? 'النشاط خلال آخر 7 أيام'
+                            : 'Activity (Last 7 Days)',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -159,9 +189,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: past7Days.map((day) {
-                        final fraction = maxDayCount > 0 ? (day.count / maxDayCount) : 0.0;
-                        final isToday = day.date.day == now.day && day.date.month == now.month;
-                        final dayLabel = _formatDayName(day.date.weekday, isArabic);
+                        final fraction = maxDayCount > 0
+                            ? (day.count / maxDayCount)
+                            : 0.0;
+                        final isToday =
+                            day.date.day == now.day &&
+                            day.date.month == now.month;
+                        final dayLabel = _formatDayName(
+                          day.date.weekday,
+                          isArabic,
+                        );
 
                         return Expanded(
                           child: Padding(
@@ -175,7 +212,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
-                                      color: isToday ? theme.colorScheme.primary : theme.colorScheme.onSurface,
+                                      color: isToday
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurface,
                                     ),
                                   ),
                                 const SizedBox(height: 4),
@@ -185,7 +224,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                   decoration: BoxDecoration(
                                     color: isToday
                                         ? theme.colorScheme.primary
-                                        : theme.colorScheme.primary.withValues(alpha: 0.35),
+                                        : theme.colorScheme.primary.withValues(
+                                            alpha: 0.35,
+                                          ),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                 ),
@@ -194,8 +235,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                   dayLabel,
                                   style: TextStyle(
                                     fontSize: 10,
-                                    fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                                    color: isToday ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                    fontWeight: isToday
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isToday
+                                        ? theme.colorScheme.primary
+                                        : theme.colorScheme.onSurface
+                                              .withValues(alpha: 0.6),
                                   ),
                                 ),
                               ],
@@ -216,7 +262,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
               side: BorderSide(
-                color: isDark ? const Color(0xFF2E333B) : const Color(0xFFE2E6EC),
+                color: isDark
+                    ? const Color(0xFF2E333B)
+                    : const Color(0xFFE2E6EC),
               ),
             ),
             child: Padding(
@@ -226,63 +274,86 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.pie_chart_outline_rounded, size: 18, color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.pie_chart_outline_rounded,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Text(
-                        isArabic ? 'توزيع الملفات حسب النوع' : 'File Type Breakdown',
-                        style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                        isArabic
+                            ? 'توزيع الملفات حسب النوع'
+                            : 'File Type Breakdown',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   ...DownloadCategory.values
-                      .where((cat) => cat != DownloadCategory.all && (categoryCounts[cat] ?? 0) > 0)
+                      .where(
+                        (cat) =>
+                            cat != DownloadCategory.all &&
+                            (categoryCounts[cat] ?? 0) > 0,
+                      )
                       .map((cat) {
-                    final count = categoryCounts[cat] ?? 0;
-                    final bytes = categoryBytes[cat] ?? 0;
-                    final pct = totalTasks > 0 ? (count / totalTasks) : 0.0;
+                        final count = categoryCounts[cat] ?? 0;
+                        final bytes = categoryBytes[cat] ?? 0;
+                        final pct = totalTasks > 0 ? (count / totalTasks) : 0.0;
 
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                cat.label,
-                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    cat.label,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  Text(
+                                    '$count (${(pct * 100).toStringAsFixed(1)}%) • ${NetGetUtils.formatBytes(bytes)}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              Text(
-                                '$count (${(pct * 100).toStringAsFixed(1)}%) • ${NetGetUtils.formatBytes(bytes)}',
-                                style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+                              const SizedBox(height: 4),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(3),
+                                child: LinearProgressIndicator(
+                                  value: pct,
+                                  minHeight: 6,
+                                  backgroundColor: theme.colorScheme.primary
+                                      .withValues(alpha: 0.12),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    _getCategoryColor(cat),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(3),
-                            child: LinearProgressIndicator(
-                              value: pct,
-                              minHeight: 6,
-                              backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                _getCategoryColor(cat),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
+                        );
+                      }),
                   if (totalTasks == 0)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       child: Center(
                         child: Text(
-                          isArabic ? 'لا توجد تحميلات مسجلة بعد' : 'No downloads recorded yet',
-                          style: theme.textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                          isArabic
+                              ? 'لا توجد تحميلات مسجلة بعد'
+                              : 'No downloads recorded yet',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
                       ),
                     ),

@@ -65,30 +65,27 @@ enum SpeedMode {
 }
 
 class NetGetConstants {
-  static const String appName = 'NDM';
+  static const String appName = 'NetGet';
   static const String appFullName = 'NetGet Download Manager';
-  static const String appSubtitle = 'NetGet Download Manager';
-  static const String appVersion = '1.0.0-rc3+3';
-  static const String userAgent = 'NetGet/1.0 (Android; en-US)';
+  static const String appSubtitle = 'Fast & Reliable File Transfers';
+  static const String appVersion = '1.0.0-rc5';
+  static const String userAgent = 'NetGet/1.0 (Android)';
 
-  /// AlmHdy Analytics Ingest Project Key.
   static const String almhdyAnalyticsProjectKey = String.fromEnvironment(
     'ALMHDY_PROJECT_KEY',
     defaultValue: 'ak_live_5b26980623961e99c0e18de3b0bc90dd',
   );
 
-  /// Default connections per download (default 1 preserves single stream; multi-connection is beta)
   static const int defaultConnections = 1;
   static const int minConnections = 1;
   static const int maxConnections = 16;
+  static const int minSplitThresholdBytes = 256 * 1024;
+  static const int minChunkPerConnectionBytes = 128 * 1024;
 
-  /// Default concurrent download limit
   static const int maxConcurrentDownloads = 3;
 
-  /// Connection timeout for starting requests
   static const Duration connectTimeout = Duration(seconds: 15);
 
-  /// Default queue name
   static const String defaultQueueName = 'Main';
 
   /// Resolves the storage directory for downloaded files.

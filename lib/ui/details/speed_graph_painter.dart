@@ -3,187 +3,191 @@ import 'package:flutter/material.dart';
 import '../../core/utils.dart';
 
 /// Custom painter for rendering live 60-sample speed sparkline graph.
+/// Reuses Paint and TextPainter instances to prevent memory churn during high-frequency updates.
 class SpeedGraphPainter extends CustomPainter {
   final List<double> samples;
   final bool isDark;
   final Color primaryColor;
+  final Color backgroundColor;
+  final Color borderColor;
+  final Color gridColor;
+  final Color textColor;
+
+  late final Paint _bgPaint;
+  late final Paint _borderPaint;
+  late final Paint _gridPaint;
+  late final Paint _fillPaint;
+  late final Paint _linePaint;
+  late final Paint _dotPaint;
+  final TextPainter _textPainter = TextPainter(
+    textDirection: TextDirection.ltr,
+  );
+  final Path _fillPath = Path();
+  final Path _linePath = Path();
 
   SpeedGraphPainter({
     required this.samples,
     required this.isDark,
     required this.primaryColor,
-  });
+    Color? backgroundColor,
+    Color? borderColor,
+    Color? gridColor,
+    Color? textColor,
+  }) : backgroundColor =
+           backgroundColor ??
+           (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
+       borderColor =
+           borderColor ??
+           (isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
+       gridColor =
+           gridColor ??
+           (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+       textColor =
+           textColor ??
+           (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)) {
+    _bgPaint = Paint()
+      ..color = this.backgroundColor
+      ..style = PaintingStyle.fill;
+    _borderPaint = Paint()
+      ..color = this.borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    _gridPaint = Paint()
+      ..color = this.gridColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    _fillPaint = Paint()..style = PaintingStyle.fill;
+    _linePaint = Paint()
+      ..color = primaryColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    _dotPaint = Paint()
+      ..color = primaryColor
+      ..style = PaintingStyle.fill;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Background canvas rect
     final rect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final bgPaint = Paint()
-      ..color = isDark ? const Color(0xFF13161A) : const Color(0xFFF6F8FB)
-      ..style = PaintingStyle.fill;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(8)),
-      bgPaint,
-    );
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(4));
 
-    final borderPaint = Paint()
-      ..color = isDark ? const Color(0xFF2B313B) : const Color(0xFFE2E6ED)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(8)),
-      borderPaint,
-    );
+    // Background & border
+    canvas.drawRRect(rrect, _bgPaint);
+    canvas.drawRRect(rrect, _borderPaint);
 
-    // Grid lines (top, middle, bottom)
-    final gridPaint = Paint()
-      ..color = isDark ? const Color(0xFF222730) : const Color(0xFFE6EBF2)
-      ..strokeWidth = 1.0;
-
+    // Grid lines (horizontal)
     canvas.drawLine(
       Offset(0, size.height * 0.25),
       Offset(size.width, size.height * 0.25),
-      gridPaint,
+      _gridPaint,
     );
     canvas.drawLine(
       Offset(0, size.height * 0.5),
       Offset(size.width, size.height * 0.5),
-      gridPaint,
+      _gridPaint,
     );
     canvas.drawLine(
       Offset(0, size.height * 0.75),
       Offset(size.width, size.height * 0.75),
-      gridPaint,
+      _gridPaint,
     );
 
-    // Vertical time marks (every 15 samples out of 60)
+    // Vertical time marks (quarter marks)
     for (var i = 1; i <= 3; i++) {
       final x = size.width * (i / 4.0);
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), _gridPaint);
     }
 
     if (samples.isEmpty) return;
 
-    // Determine max speed ceiling
     final maxSpeed = max(1024.0, samples.reduce(max));
-
-    // Pad samples to 60 points if less than 60
-    final points = <Offset>[];
     const totalPoints = 60;
     final startIndex = max(0, samples.length - totalPoints);
     final effectiveSamples = samples.sublist(startIndex);
 
-    final stepX = size.width / (totalPoints - 1);
-    final xOffset = size.width - (effectiveSamples.length - 1) * stepX;
+    if (effectiveSamples.length >= 2) {
+      final stepX = size.width / (totalPoints - 1);
+      final xOffset = size.width - (effectiveSamples.length - 1) * stepX;
 
-    for (var i = 0; i < effectiveSamples.length; i++) {
-      final s = effectiveSamples[i];
-      final x = xOffset + (i * stepX);
-      final normalized = (s / maxSpeed).clamp(0.0, 1.0);
-      // Leave 8px margin top and bottom
-      final y = size.height - 8 - (normalized * (size.height - 16));
-      points.add(Offset(x, y));
-    }
+      _fillPath.reset();
+      _linePath.reset();
 
-    if (points.length >= 2) {
-      // Area fill path
-      final fillPath = Path();
-      fillPath.moveTo(points.first.dx, size.height);
-      for (final pt in points) {
-        fillPath.lineTo(pt.dx, pt.dy);
-      }
-      fillPath.lineTo(points.last.dx, size.height);
-      fillPath.close();
+      final firstX = xOffset;
+      final firstNorm = (effectiveSamples[0] / maxSpeed).clamp(0.0, 1.0);
+      final firstY = size.height - 6 - (firstNorm * (size.height - 12));
 
-      final fillPaint = Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            primaryColor.withValues(alpha: 0.35),
-            primaryColor.withValues(alpha: 0.0),
-          ],
-        ).createShader(rect)
-        ..style = PaintingStyle.fill;
-      canvas.drawPath(fillPath, fillPaint);
+      _fillPath.moveTo(firstX, size.height);
+      _fillPath.lineTo(firstX, firstY);
+      _linePath.moveTo(firstX, firstY);
 
-      // Line stroke path
-      final linePath = Path();
-      linePath.moveTo(points.first.dx, points.first.dy);
-      for (var i = 1; i < points.length; i++) {
-        linePath.lineTo(points[i].dx, points[i].dy);
+      Offset lastPoint = Offset(firstX, firstY);
+
+      for (var i = 1; i < effectiveSamples.length; i++) {
+        final x = xOffset + (i * stepX);
+        final norm = (effectiveSamples[i] / maxSpeed).clamp(0.0, 1.0);
+        final y = size.height - 6 - (norm * (size.height - 12));
+        _fillPath.lineTo(x, y);
+        _linePath.lineTo(x, y);
+        lastPoint = Offset(x, y);
       }
 
-      final linePaint = Paint()
-        ..color = primaryColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
-      canvas.drawPath(linePath, linePaint);
+      _fillPath.lineTo(lastPoint.dx, size.height);
+      _fillPath.close();
 
-      // Dot on last point
-      final dotPaint = Paint()
-        ..color = primaryColor
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(points.last, 3.5, dotPaint);
+      _fillPaint.shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          primaryColor.withValues(alpha: 0.25),
+          primaryColor.withValues(alpha: 0.0),
+        ],
+      ).createShader(rect);
+
+      canvas.drawPath(_fillPath, _fillPaint);
+      canvas.drawPath(_linePath, _linePaint);
+      canvas.drawCircle(lastPoint, 3.0, _dotPaint);
     }
 
     // Peak speed label
     final maxLabel = NetGetUtils.formatSpeed(maxSpeed);
-    final textSpan = TextSpan(
+    _textPainter.text = TextSpan(
       text: 'Peak: $maxLabel',
       style: TextStyle(
         fontSize: 10,
-        fontWeight: FontWeight.bold,
-        color: isDark ? Colors.white60 : Colors.black54,
-        fontFamily: 'monospace',
+        fontWeight: FontWeight.w600,
+        color: textColor,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.ltr,
-    )..layout();
-    textPainter.paint(canvas, const Offset(8, 6));
+    _textPainter.layout();
+    _textPainter.paint(canvas, const Offset(6, 4));
 
-    // Time markings label (e.g. "60s ago ... Now")
-    final timeSpan = TextSpan(
-      text: '60s ago',
-      style: TextStyle(
-        fontSize: 9,
-        color: isDark ? Colors.white38 : Colors.black38,
-        fontFamily: 'monospace',
-      ),
-    );
-    final timePainter = TextPainter(
-      text: timeSpan,
-      textDirection: TextDirection.ltr,
-    )..layout();
-    timePainter.paint(canvas, Offset(8, size.height - timePainter.height - 4));
-
-    final nowSpan = TextSpan(
+    // Time markings label ("-60s" ... "Now")
+    _textPainter.text = TextSpan(
       text: 'Now',
       style: TextStyle(
         fontSize: 9,
-        color: isDark ? Colors.white38 : Colors.black38,
-        fontFamily: 'monospace',
+        fontWeight: FontWeight.w500,
+        color: textColor.withValues(alpha: 0.8),
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
-    final nowPainter = TextPainter(
-      text: nowSpan,
-      textDirection: TextDirection.ltr,
-    )..layout();
-    nowPainter.paint(
+    _textPainter.layout();
+    _textPainter.paint(
       canvas,
       Offset(
-        size.width - nowPainter.width - 8,
-        size.height - nowPainter.height - 4,
+        size.width - _textPainter.width - 6,
+        size.height - _textPainter.height - 4,
       ),
     );
   }
 
   @override
   bool shouldRepaint(covariant SpeedGraphPainter oldDelegate) {
-    return oldDelegate.samples != samples;
+    return oldDelegate.samples != samples ||
+        oldDelegate.isDark != isDark ||
+        oldDelegate.primaryColor != primaryColor;
   }
 }

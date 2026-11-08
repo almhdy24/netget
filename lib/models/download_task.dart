@@ -140,13 +140,15 @@ class DownloadTask {
     List<TaskLogEvent>? eventLog,
     int? elapsedSeconds,
   }) {
-    final bool shouldClearError = clearError ||
+    final bool shouldClearError =
+        clearError ||
         ((status == DownloadStatus.queued ||
                 status == DownloadStatus.downloading ||
                 status == DownloadStatus.completed) &&
             errorMessage == null);
 
-    final bool shouldClearCompletedAt = clearCompletedAt ||
+    final bool shouldClearCompletedAt =
+        clearCompletedAt ||
         ((status == DownloadStatus.queued ||
                 status == DownloadStatus.downloading ||
                 status == DownloadStatus.paused ||
@@ -164,9 +166,13 @@ class DownloadTask {
       status: status ?? this.status,
       resumable: resumable ?? this.resumable,
       speedBytesPerSec: speedBytesPerSec ?? this.speedBytesPerSec,
-      errorMessage: shouldClearError ? null : (errorMessage ?? this.errorMessage),
+      errorMessage: shouldClearError
+          ? null
+          : (errorMessage ?? this.errorMessage),
       createdAt: createdAt ?? this.createdAt,
-      completedAt: shouldClearCompletedAt ? null : (completedAt ?? this.completedAt),
+      completedAt: shouldClearCompletedAt
+          ? null
+          : (completedAt ?? this.completedAt),
       category: category ?? this.category,
       connectionCount: connectionCount ?? this.connectionCount,
       etag: etag ?? this.etag,
