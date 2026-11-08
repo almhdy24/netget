@@ -231,11 +231,20 @@ jobs:
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            if [ -n "$NOTES_FILE" ]; then
-              gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" $PRERELEASE_FLAG
-            else
-              gh release create "$TAG" --title "$TITLE" --generate-notes $PRERELEASE_FLAG
+          # If an empty release was previously created, remove it to allow atomic creation with assets (needed when immutable releases are enabled)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length' 2>/dev/null || echo "0")
+            if [ "$ASSET_COUNT" -eq 0 ]; then
+              gh release delete "$TAG" --yes --cleanup-tag=false || true
             fi
           fi
-          gh release upload "$TAG" dist/* --clobber
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [ -n "$NOTES_FILE" ]; then
+              gh release create "$TAG" dist/* --title "$TITLE" --notes-file "$NOTES_FILE" $PRERELEASE_FLAG
+            else
+              gh release create "$TAG" dist/* --title "$TITLE" --generate-notes $PRERELEASE_FLAG
+            fi
+          else
+            gh release upload "$TAG" dist/* --clobber
+          fi
