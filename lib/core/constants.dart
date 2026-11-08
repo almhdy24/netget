@@ -68,7 +68,7 @@ class NetGetConstants {
   static const String appName = 'NDM';
   static const String appFullName = 'NetGet Download Manager';
   static const String appSubtitle = 'NetGet Download Manager';
-  static const String appVersion = '1.0.0-rc2+2';
+  static const String appVersion = '1.0.0-rc3+3';
   static const String userAgent = 'NetGet/1.0 (Android; en-US)';
 
   /// AlmHdy Analytics Ingest Project Key.

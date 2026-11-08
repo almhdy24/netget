@@ -296,7 +296,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify custom about dialog is displayed
-    expect(find.text('Version 1.0.0-rc2'), findsOneWidget);
+    expect(find.text('Version 1.0.0-rc3'), findsOneWidget);
     expect(find.text('NDM (NetGet Download Manager)'), findsOneWidget);
 
     // Verify "Powered by Flutter" is NEVER present

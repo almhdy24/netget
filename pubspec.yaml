@@ -1,7 +1,7 @@
 name: netget
 description: "NetGet – Download Manager for Android"
 publish_to: 'none'
-version: 1.0.0-rc2+2
+version: 1.0.0-rc3+3
 
 environment:
   sdk: ^3.11.0
