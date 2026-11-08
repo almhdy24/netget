@@ -648,33 +648,13 @@ class _HomeScreenState extends State<HomeScreen> {
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                NetGetConstants.appName,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                  fontSize: 20,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  'PRO',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ),
-            ],
+          Text(
+            NetGetConstants.appName,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.3,
+              fontSize: 19,
+            ),
           ),
           Text(
             NetGetConstants.appSubtitle,
@@ -1118,7 +1098,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Quick URL Input Bar
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
               child: Row(
                 children: [
                   Expanded(
@@ -1131,14 +1111,34 @@ class _HomeScreenState extends State<HomeScreen> {
                         hintText: 'Paste download link...',
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
+                          horizontal: 14,
+                          vertical: 11,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: Theme.of(context).brightness == Brightness.dark
+                                ? const Color(0xFF1B3260)
+                                : const Color(0xFFE5E9F0),
+                            width: 1,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 1.5,
+                          ),
                         ),
                         prefixIcon: const Icon(Icons.link_rounded, size: 18),
                         suffixIcon: IconButton(
                           icon: const Icon(
                             Icons.content_paste_rounded,
-                            size: 16,
+                            size: 17,
                           ),
                           tooltip: 'Paste',
                           onPressed: _pasteToQuickInput,
@@ -1151,14 +1151,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: _quickStartDownload,
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
+                        horizontal: 16,
+                        vertical: 13,
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: const Icon(Icons.download_rounded, size: 18),
+                    child: const Icon(Icons.download_rounded, size: 19),
                   ),
                 ],
               ),

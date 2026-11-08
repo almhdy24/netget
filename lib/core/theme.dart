@@ -44,19 +44,23 @@ class NetGetTheme {
         elevation: 0,
         color: Colors.white,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFFE2E6EF), width: 1),
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFE5E9F0), width: 1),
         ),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: brandBlue,
         foregroundColor: brandWhite,
-        elevation: 2,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(16)),
+        ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: brandBlue,
-        linearTrackColor: Color(0xFFE2E6EF),
+        linearTrackColor: Color(0xFFE9EEF6),
+        linearMinHeight: 5,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -112,19 +116,23 @@ class NetGetTheme {
         elevation: 0,
         color: const Color(0xFF0C1B3B),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFF162E5C), width: 1),
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFF1B3260), width: 1),
         ),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: brandBlue,
         foregroundColor: brandWhite,
-        elevation: 2,
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(16)),
+        ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: brandCyan,
-        linearTrackColor: Color(0xFF152A50),
+        linearTrackColor: Color(0xFF132546),
+        linearMinHeight: 5,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

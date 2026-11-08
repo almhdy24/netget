@@ -38,13 +38,14 @@ class StatsSummaryCard extends StatelessWidget {
     final currentMode = manager.speedMode;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1B1E23) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: isDark ? const Color(0xFF0C1B3B) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isDark ? const Color(0xFF2E333B) : const Color(0xFFE2E6EC),
+          color: isDark ? const Color(0xFF1B3260) : const Color(0xFFE5E9F0),
+          width: 1,
         ),
       ),
       child: Column(
@@ -53,17 +54,25 @@ class StatsSummaryCard extends StatelessWidget {
           // Header Row: Transfer Monitor + Speed badge + Speed Mode Dropdown
           Row(
             children: [
-              Icon(
-                Icons.speed_rounded,
-                size: 18,
-                color: totalSpeed > 0
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: (totalSpeed > 0 ? theme.colorScheme.primary : theme.colorScheme.onSurface)
+                      .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.speed_rounded,
+                  size: 16,
+                  color: totalSpeed > 0
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Flexible(
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(6),
                   onTap: () {
                     AnalyticsService.trackStatsViewed(view: 'summary_card_header');
                     Navigator.of(context).push(
@@ -77,57 +86,64 @@ class StatsSummaryCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
                     style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.2,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               if (totalSpeed > 0)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
+                    horizontal: 7,
+                    vertical: 2.5,
                   ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     NetGetUtils.formatSpeed(totalSpeed),
                     style: NetGetUtils.tabularStyle(
                       TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700,
                         color: theme.colorScheme.primary,
                       ),
                     ),
                   ),
                 ),
               const Spacer(),
-              DropdownButtonHideUnderline(
-                child: DropdownButton<SpeedMode>(
-                  value: currentMode,
-                  isDense: true,
-                  icon: const Icon(Icons.tune_rounded, size: 16),
-                  items: SpeedMode.values.map((mode) {
-                    return DropdownMenuItem(
-                      value: mode,
-                      child: Text(
-                        mode.label,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<SpeedMode>(
+                    value: currentMode,
+                    isDense: true,
+                    icon: const Icon(Icons.arrow_drop_down_rounded, size: 18),
+                    items: SpeedMode.values.map((mode) {
+                      return DropdownMenuItem(
+                        value: mode,
+                        child: Text(
+                          mode.label,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (mode) {
-                    if (mode != null) {
-                      manager.setSpeedMode(mode);
-                    }
-                  },
+                      );
+                    }).toList(),
+                    onChanged: (mode) {
+                      if (mode != null) {
+                        manager.setSpeedMode(mode);
+                      }
+                    },
+                  ),
                 ),
               ),
             ],
@@ -190,7 +206,13 @@ class StatsSummaryCard extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 14),
+          const SizedBox(height: 8),
+          Divider(
+            height: 1,
+            thickness: 0.8,
+            color: isDark ? const Color(0xFF1B3260) : const Color(0xFFE5E9F0),
+          ),
+          const SizedBox(height: 8),
 
           // Desktop Toolbar Actions (scrollable horizontally if constrained)
           SingleChildScrollView(
@@ -331,22 +353,22 @@ class StatsSummaryCard extends StatelessWidget {
       return FilledButton.icon(
         onPressed: onPressed,
         icon: Icon(icon, size: 15),
-        label: Text(label, style: const TextStyle(fontSize: 11)),
+        label: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
         style: FilledButton.styleFrom(
           visualDensity: VisualDensity.compact,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
     }
-    return OutlinedButton.icon(
+    return FilledButton.tonalIcon(
       onPressed: onPressed,
       icon: Icon(icon, size: 15),
-      label: Text(label, style: const TextStyle(fontSize: 11)),
-      style: OutlinedButton.styleFrom(
+      label: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
+      style: FilledButton.styleFrom(
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }

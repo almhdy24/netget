@@ -144,35 +144,62 @@ class NotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val statText = if (activeCount > 0) {
+        val title: String
+        val contentText: String
+        val subText: String?
+
+        if (activeCount > 0) {
+            val speedPart = if (totalSpeedStr.isNotBlank()) " • $totalSpeedStr" else ""
             if (activeCount == 1 && !fileName.isNullOrEmpty()) {
+                title = fileName
                 if (totalBytes > 0) {
-                    " - %"
+                    contentText = "$percent%$speedPart"
+                    subText = "$percent%"
                 } else {
-                    " - In progress"
+                    contentText = if (totalSpeedStr.isNotBlank()) "In progress • $totalSpeedStr" else "In progress"
+                    subText = "Active"
                 }
             } else {
-                " downloads - %"
+                title = "$activeCount active downloads"
+                if (totalBytes > 0) {
+                    contentText = "$percent%$speedPart"
+                    subText = "$percent%"
+                } else {
+                    contentText = if (totalSpeedStr.isNotBlank()) totalSpeedStr else "In progress"
+                    subText = "$activeCount tasks"
+                }
             }
         } else {
-            "All transfers finished"
+            title = "NetGet"
+            contentText = "All transfers finished"
+            subText = null
         }
 
         val isIndeterminate = activeCount > 0 && totalBytes <= 0
         val progressVal = if (isIndeterminate) 0 else percent.coerceIn(0, 100)
 
-        return NotificationCompat.Builder(context, PROGRESS_CHANNEL_ID)
-            .setSmallIcon(context.resources.getIdentifier("ic_stat_download", "drawable", context.packageName).let {
-                if (it != 0) it else android.R.drawable.stat_sys_download
-            })
-            .setContentTitle("NDM")
-            .setContentText(statText)
+        val smallIcon = context.resources.getIdentifier("ic_stat_download", "drawable", context.packageName).let {
+            if (it != 0) it else android.R.drawable.stat_sys_download
+        }
+
+        val builder = NotificationCompat.Builder(context, PROGRESS_CHANNEL_ID)
+            .setSmallIcon(smallIcon)
+            .setContentTitle(title)
+            .setContentText(contentText)
             .setContentIntent(pendingIntent)
             .setProgress(100, progressVal, isIndeterminate)
             .setOngoing(activeCount > 0)
             .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setColor(0xFF176BFF.toInt())
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+
+        if (!subText.isNullOrEmpty()) {
+            builder.setSubText(subText)
+        }
+
+        return builder.build()
     }
 
     fun notifySummary(notificationId: Int, notification: Notification) {
@@ -259,10 +286,10 @@ class NotificationHelper(private val context: Context) {
         val contentText = if (isPaused) {
             "Paused • ${formatBytes(downloadedBytes)}"
         } else {
-            "$speedStr • ETA $etaStr"
+            if (totalBytes > 0) "$progress% • $speedStr • ETA $etaStr" else "$speedStr • ETA $etaStr"
         }
 
-        return NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(context.resources.getIdentifier("ic_stat_download", "drawable", context.packageName).let {
                 if (it != 0) it else android.R.drawable.stat_sys_download
             })
@@ -272,10 +299,18 @@ class NotificationHelper(private val context: Context) {
             .setProgress(100, progress, totalBytes <= 0)
             .setOngoing(!isPaused)
             .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setColor(0xFF176BFF.toInt())
             .addAction(toggleAction)
             .addAction(cancelAction)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+
+        if (totalBytes > 0) {
+            builder.setSubText("$progress%")
+        }
+
+        return builder.build()
     }
 
     fun notifyCompleted(notificationId: Int, fileName: String, savePath: String) {
@@ -298,6 +333,7 @@ class NotificationHelper(private val context: Context) {
                 .setContentText(fileName)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
+                .setColor(0xFF39E75F.toInt())
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
 
@@ -321,12 +357,14 @@ class NotificationHelper(private val context: Context) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            val errorDetail = if (errorMessage.isNotBlank()) "$fileName: $errorMessage" else fileName
             val notification = NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_warning)
                 .setContentTitle("Download Failed")
-                .setContentText(": ")
+                .setContentText(errorDetail)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
+                .setColor(0xFFD32F2F.toInt())
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
 

@@ -507,16 +507,16 @@ class DownloadCard extends StatelessWidget {
           ? theme.colorScheme.primary.withValues(alpha: 0.08)
           : null,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: BorderSide(
           color: isSelected
               ? theme.colorScheme.primary
-              : (isDark ? const Color(0xFF2C3138) : const Color(0xFFE2E4E8)),
+              : (isDark ? const Color(0xFF1E283C) : const Color(0xFFE5E9F0)),
           width: isSelected ? 1.5 : 1.0,
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         onTap: () {
           if (isSelectionMode) {
             onSelectChanged?.call(!isSelected);
@@ -528,11 +528,11 @@ class DownloadCard extends StatelessWidget {
         onSecondaryTapUp: (details) =>
             _showContextMenu(context, details.globalPosition),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top row: File Icon + File Name & Domain + Status Badge
+              // Top row: File Icon + File Name & Domain + Status Badge & Action Button
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -548,8 +548,8 @@ class DownloadCard extends StatelessWidget {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
+                      color: statusColor.withValues(alpha: isDark ? 0.18 : 0.12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(fileIcon, color: statusColor, size: 22),
                   ),
@@ -563,11 +563,13 @@ class DownloadCard extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                            height: 1.25,
                           ),
                         ),
-                        if (host.isNotEmpty)
+                        if (host.isNotEmpty) ...[
+                          const SizedBox(height: 2),
                           Text(
                             host,
                             maxLines: 1,
@@ -579,20 +581,28 @@ class DownloadCard extends StatelessWidget {
                               fontSize: 11,
                             ),
                           ),
+                        ],
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _buildStatusBadge(currentTask, statusColor, isDark),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildStatusBadge(currentTask, statusColor, isDark),
+                      const SizedBox(width: 6),
+                      _buildQuickActionButton(context, currentTask, statusColor),
+                    ],
+                  ),
                 ],
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
               // Progress bar
               _buildProgressBar(context, currentTask, statusColor),
 
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
 
               // Progress info & stats row
               _buildStatsRow(context, currentTask),
@@ -634,14 +644,51 @@ class DownloadCard extends StatelessWidget {
                   ),
                 ),
               ],
-
-              const SizedBox(height: 10),
-
-              // Action button bar (single primary action)
-              _buildActionBar(context, currentTask),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildQuickActionButton(
+    BuildContext context,
+    DownloadTask currentTask,
+    Color statusColor,
+  ) {
+    final IconData icon;
+    final String tooltip;
+    final VoidCallback onPressed;
+
+    if (currentTask.status == DownloadStatus.downloading) {
+      icon = Icons.pause_rounded;
+      tooltip = 'Pause';
+      onPressed = () => manager.pauseDownload(currentTask.id);
+    } else if (currentTask.status == DownloadStatus.paused ||
+        currentTask.status == DownloadStatus.queued) {
+      icon = Icons.play_arrow_rounded;
+      tooltip = 'Resume';
+      onPressed = () => manager.resumeDownload(currentTask.id);
+    } else if (currentTask.status.isFailed ||
+        currentTask.status == DownloadStatus.cancelled) {
+      icon = Icons.refresh_rounded;
+      tooltip = 'Retry';
+      onPressed = () => manager.retryDownload(currentTask.id);
+    } else {
+      icon = Icons.folder_open_rounded;
+      tooltip = 'Open';
+      onPressed = () => _openFile(context);
+    }
+
+    return IconButton.filledTonal(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      icon: Icon(icon, size: 18),
+      style: IconButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        minimumSize: const Size(34, 34),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
@@ -811,57 +858,6 @@ class DownloadCard extends StatelessWidget {
       ],
     );
   }
-
-  Widget _buildActionBar(BuildContext context, DownloadTask currentTask) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        if (currentTask.status == DownloadStatus.downloading)
-          FilledButton.tonalIcon(
-            onPressed: () => manager.pauseDownload(currentTask.id),
-            icon: const Icon(Icons.pause_rounded, size: 16),
-            label: const Text('Pause'),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
-            ),
-          )
-        else if (currentTask.status == DownloadStatus.paused ||
-            currentTask.status == DownloadStatus.queued)
-          FilledButton.tonalIcon(
-            onPressed: () => manager.resumeDownload(currentTask.id),
-            icon: const Icon(Icons.play_arrow_rounded, size: 16),
-            label: const Text('Resume'),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
-            ),
-          )
-        else if (currentTask.status.isFailed ||
-            currentTask.status == DownloadStatus.cancelled)
-          FilledButton.tonalIcon(
-            onPressed: () => manager.retryDownload(currentTask.id),
-            icon: const Icon(Icons.refresh_rounded, size: 16),
-            label: const Text('Retry'),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
-            ),
-          )
-        else if (currentTask.status.isCompleted)
-          FilledButton.tonalIcon(
-            onPressed: () => _openFile(context),
-            icon: const Icon(Icons.folder_open_rounded, size: 16),
-            label: const Text('Open'),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
-            ),
-          ),
-      ],
-    );
-  }
-
 
   Future<void> _openFile(BuildContext context) async {
     final file = File(task.savePath);
