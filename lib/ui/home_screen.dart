@@ -410,9 +410,13 @@ class _HomeScreenState extends State<HomeScreen> {
             child: const Icon(Icons.download, size: 16, color: Colors.white),
           ),
           const SizedBox(width: 8),
-          const Text(
-            NetGetConstants.appName,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          const Flexible(
+            child: Text(
+              NetGetConstants.appName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),

@@ -36,7 +36,18 @@ class JsonDownloadRepository implements DownloadRepository {
   @override
   Future<List<DownloadTask>> loadTasks() async {
     if (_cachedTasks != null) {
-      return List<DownloadTask>.from(_cachedTasks!);
+      final sanitized = _cachedTasks!.map((t) {
+        if (t.status == DownloadStatus.downloading ||
+            t.status == DownloadStatus.queued) {
+          return t.copyWith(
+            status: DownloadStatus.paused,
+            speedBytesPerSec: 0.0,
+          );
+        }
+        return t;
+      }).toList();
+      _cachedTasks = sanitized;
+      return List<DownloadTask>.from(sanitized);
     }
 
     try {

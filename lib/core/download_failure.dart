@@ -129,7 +129,9 @@ class DownloadFailureMapper {
     if (error == null) return const UnknownFailure();
 
     if (error is FileSystemException) {
-      if (error.osError?.errorCode == 28) {
+      if (error.osError?.errorCode == 28 ||
+          error.message.toLowerCase().contains('no space') ||
+          error.message.toLowerCase().contains('enospc')) {
         return StorageFullFailure(
           errorCode: error.osError?.errorCode,
           rawDetail: error.message,
@@ -138,12 +140,12 @@ class DownloadFailureMapper {
       return UnknownFailure(rawDetail: error.message);
     }
 
-    if (error is TimeoutException) {
-      return TimeoutFailure(rawDetail: error.message);
-    }
-
     if (error is SocketException) {
-      if (error.osError?.errorCode == 111) {
+      final msg = error.message.toLowerCase();
+      final osMsg = error.osError?.message.toLowerCase() ?? '';
+      if (error.osError?.errorCode == 111 ||
+          msg.contains('refused') ||
+          osMsg.contains('refused')) {
         return ServerRefusedFailure(
           errorCode: error.osError?.errorCode,
           rawDetail: error.message,
@@ -155,8 +157,41 @@ class DownloadFailureMapper {
       );
     }
 
+    if (error is TimeoutException) {
+      return TimeoutFailure(rawDetail: error.message);
+    }
+
     if (error is HttpException) {
-      return UnknownFailure(rawDetail: error.message);
+      final msg = error.message;
+      if (msg.contains('403')) {
+        return HttpFailure(statusCode: 403, rawDetail: msg);
+      }
+      if (msg.contains('404')) {
+        return HttpFailure(statusCode: 404, rawDetail: msg);
+      }
+      final match = RegExp(r'\b(5\d\d)\b').firstMatch(msg);
+      if (match != null) {
+        return HttpFailure(
+          statusCode: int.parse(match.group(1)!),
+          rawDetail: msg,
+        );
+      }
+      if (msg.contains('Server file changed') || msg.contains('ETag')) {
+        return FileChangedOnServerFailure(rawDetail: msg);
+      }
+      return UnknownFailure(rawDetail: msg);
+    }
+
+    final str = error.toString().toLowerCase();
+    if (str.contains('diskspace') ||
+        str.contains('no space') ||
+        str.contains('enospc') ||
+        str.contains('storage space')) {
+      return StorageFullFailure(rawDetail: error.toString());
+    }
+
+    if (str.contains('etag') || str.contains('server file changed')) {
+      return FileChangedOnServerFailure(rawDetail: error.toString());
     }
 
     return UnknownFailure(rawDetail: error.toString());

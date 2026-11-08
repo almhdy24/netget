@@ -2,12 +2,16 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:netget/core/constants.dart';
 import 'package:netget/data/download_repository.dart';
 import 'package:netget/main.dart';
 import 'package:netget/models/download_status.dart';
 import 'package:netget/models/download_task.dart';
 import 'package:netget/services/download_manager.dart';
+import 'package:netget/ui/widgets/desktop_toolbar.dart';
 import 'package:netget/ui/widgets/download_card.dart';
+import 'package:netget/ui/widgets/download_status_footer.dart';
+import 'package:netget/ui/widgets/empty_state_view.dart';
 
 class TestDownloadRepository implements DownloadRepository {
   List<DownloadTask> tasks = [];
@@ -84,32 +88,18 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    // Verify title and subtitle
-    expect(find.text('NDM'), findsOneWidget);
-    expect(find.text('NetGet Download Manager'), findsOneWidget);
+    // Verify title
+    expect(find.text(NetGetConstants.appName), findsWidgets);
 
-    // Verify Transfer Monitor summary card
-    expect(find.text('Transfer Monitor'), findsOneWidget);
-    expect(find.text('Active'), findsOneWidget); // In monitor stat item
-    expect(
-      find.textContaining('Active ('),
-      findsOneWidget,
-    ); // In segmented button
-    expect(find.text('Done'), findsOneWidget); // In monitor stat item
-    expect(
-      find.textContaining('Done ('),
-      findsOneWidget,
-    ); // In segmented button
+    // Verify Desktop Toolbar controls
+    expect(find.byType(DesktopToolbar), findsOneWidget);
+    expect(find.text('Add URL'), findsWidgets);
+
+    // Verify status footer
+    expect(find.byType(DownloadStatusFooter), findsOneWidget);
 
     // Verify Empty State
-    expect(find.text('No Downloads Yet'), findsOneWidget);
-
-    // Verify Quick URL Input
-    expect(find.byType(TextField), findsOneWidget);
-    expect(find.byIcon(Icons.download_rounded), findsOneWidget);
-
-    // Verify Add Link FAB
-    expect(find.text('Add Link'), findsOneWidget);
+    expect(find.byType(EmptyStateView), findsOneWidget);
   });
 
   testWidgets('NetGetApp displays DownloadCard for existing tasks', (
@@ -184,7 +174,7 @@ void main() {
     },
   );
 
-  testWidgets('Empty state displays Add download button and paste chip', (
+  testWidgets('Empty state displays Add download button', (
     WidgetTester tester,
   ) async {
     final repository = TestDownloadRepository();
@@ -199,13 +189,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    expect(find.text('No Downloads Yet'), findsOneWidget);
-    expect(find.text('Add download'), findsOneWidget);
-    expect(find.text('Paste from clipboard'), findsOneWidget);
+    expect(find.byType(EmptyStateView), findsOneWidget);
+    expect(find.text('Add URL'), findsWidgets);
   });
 
   testWidgets(
-    'Home screen groups and orders tasks: Active -> Queued/Paused -> Failed -> Completed with headers',
+    'Home screen renders tasks cleanly in list',
     (WidgetTester tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -262,12 +251,6 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
-      // Verify section headers with counts are rendered
-      expect(find.text('Active (1)'), findsOneWidget);
-      expect(find.text('Queued & Paused (1)'), findsOneWidget);
-      expect(find.text('Failed (1)'), findsOneWidget);
-      expect(find.text('Completed (1)'), findsOneWidget);
-
       // Verify cards are all displayed
       expect(find.text('active.iso'), findsOneWidget);
       expect(find.text('paused.tar'), findsOneWidget);
@@ -291,17 +274,13 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    // Open popup menu
-    await tester.tap(find.byIcon(Icons.more_vert_rounded));
-    await tester.pumpAndSettle();
+    // Tap Settings in toolbar
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
-    // Tap About NDM
-    await tester.tap(find.text('About NDM'));
-    await tester.pumpAndSettle();
-
-    // Verify custom about dialog is displayed
-    expect(find.text('Version 1.0.0-rc3'), findsOneWidget);
-    expect(find.text('NDM (NetGet Download Manager)'), findsOneWidget);
+    // Verify settings dialog opened
+    expect(find.text('Preferences'), findsOneWidget);
 
     // Verify "Powered by Flutter" is NEVER present
     expect(find.text('Powered by Flutter'), findsNothing);

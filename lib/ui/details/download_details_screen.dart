@@ -243,11 +243,15 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
                       children: [
                         _buildStatusBadge(task, statusColor),
                         const SizedBox(width: 8),
-                        Text(
-                          '${task.category.label} • Queue: ${task.queueName}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 11,
-                            color: theme.colorScheme.onSurfaceVariant,
+                        Flexible(
+                          child: Text(
+                            '${task.category.label} • Queue: ${task.queueName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: 11,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
@@ -271,14 +275,19 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                '${NetGetUtils.formatBytes(task.downloadedBytes)} / '
-                '${task.totalBytes > 0 ? NetGetUtils.formatBytes(task.totalBytes) : 'Unknown'} ($percentage)',
-                style: NetGetUtils.tabularStyle(
-                  theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+              Flexible(
+                child: Text(
+                  '${NetGetUtils.formatBytes(task.downloadedBytes)} / '
+                  '${task.totalBytes > 0 ? NetGetUtils.formatBytes(task.totalBytes) : 'Unknown'} ($percentage)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: NetGetUtils.tabularStyle(
+                    theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+                  ),
                 ),
               ),
-              if (task.status == DownloadStatus.downloading)
+              if (task.status == DownloadStatus.downloading) ...[
+                const SizedBox(width: 8),
                 Text(
                   '${NetGetUtils.formatSpeed(task.speedBytesPerSec)} • ETA ${NetGetUtils.formatEta(task.etaSeconds)}',
                   style: NetGetUtils.tabularStyle(
@@ -289,6 +298,7 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
                     ),
                   ),
                 ),
+              ],
             ],
           ),
         ],
