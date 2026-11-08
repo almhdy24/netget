@@ -118,7 +118,7 @@ class SegmentPlanner {
       segments.add(DownloadSegment(index: i, startByte: start, endByte: end));
     }
 
-    return List.unmodifiable(segments);
+    return segments;
   }
 
   static SegmentSplitResult? splitLargestSegment(

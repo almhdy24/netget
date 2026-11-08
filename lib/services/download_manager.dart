@@ -1559,12 +1559,14 @@ class DownloadManager extends ChangeNotifier {
           currentTask.lastModified;
 
       // Update segment tracking
-      var segments = currentTask.segments;
+      var segments = List<DownloadSegment>.from(currentTask.segments);
       if (segments.isEmpty || segments.first.endByte < 0) {
-        segments = SegmentPlanner.planInitialSegments(
-          totalBytes: totalBytes,
-          connectionCount: currentTask.connectionCount,
-          resumable: resumable,
+        segments = List<DownloadSegment>.from(
+          SegmentPlanner.planInitialSegments(
+            totalBytes: totalBytes,
+            connectionCount: currentTask.connectionCount,
+            resumable: resumable,
+          ),
         );
       }
 
