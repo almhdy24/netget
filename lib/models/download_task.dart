@@ -58,6 +58,7 @@ class DownloadTask {
   final List<double> speedSamples; // 60-sample history for sparkline
   final List<TaskLogEvent> eventLog; // up to 200 events ring buffer
   final int elapsedSeconds;
+  final int rev;
 
   const DownloadTask({
     required this.id,
@@ -82,6 +83,7 @@ class DownloadTask {
     this.speedSamples = const [],
     this.eventLog = const [],
     this.elapsedSeconds = 0,
+    this.rev = 0,
   });
 
   /// Progress fraction from 0.0 to 1.0, or null if total size is unknown.
@@ -114,6 +116,8 @@ class DownloadTask {
     return downloadedBytes / elapsedSeconds;
   }
 
+  static const Object _sentinel = Object();
+
   DownloadTask copyWith({
     String? id,
     String? url,
@@ -124,37 +128,76 @@ class DownloadTask {
     DownloadStatus? status,
     bool? resumable,
     double? speedBytesPerSec,
-    String? errorMessage,
+    Object? errorMessage = _sentinel,
     bool clearError = false,
     DateTime? createdAt,
-    DateTime? completedAt,
+    Object? completedAt = _sentinel,
     bool clearCompletedAt = false,
     DownloadCategory? category,
     int? connectionCount,
-    String? etag,
-    String? lastModified,
-    String? referrer,
+    Object? etag = _sentinel,
+    bool clearEtag = false,
+    Object? lastModified = _sentinel,
+    bool clearLastModified = false,
+    Object? referrer = _sentinel,
+    bool clearReferrer = false,
     String? queueName,
     List<DownloadSegment>? segments,
     List<double>? speedSamples,
     List<TaskLogEvent>? eventLog,
     int? elapsedSeconds,
+    int? rev,
   }) {
-    final bool shouldClearError =
-        clearError ||
-        ((status == DownloadStatus.queued ||
-                status == DownloadStatus.downloading ||
-                status == DownloadStatus.completed) &&
-            errorMessage == null);
+    final String? resolvedErrorMessage;
+    if (clearError) {
+      resolvedErrorMessage = null;
+    } else if (!identical(errorMessage, _sentinel)) {
+      resolvedErrorMessage = errorMessage as String?;
+    } else if ((status == DownloadStatus.queued ||
+            status == DownloadStatus.downloading ||
+            status == DownloadStatus.completed) &&
+        this.errorMessage != null &&
+        identical(errorMessage, _sentinel)) {
+      resolvedErrorMessage = null;
+    } else {
+      resolvedErrorMessage = this.errorMessage;
+    }
 
-    final bool shouldClearCompletedAt =
-        clearCompletedAt ||
-        ((status == DownloadStatus.queued ||
-                status == DownloadStatus.downloading ||
-                status == DownloadStatus.paused ||
-                status == DownloadStatus.failed) &&
-            completedAt == null &&
-            clearCompletedAt);
+    final DateTime? resolvedCompletedAt;
+    if (clearCompletedAt) {
+      resolvedCompletedAt = null;
+    } else if (!identical(completedAt, _sentinel)) {
+      resolvedCompletedAt = completedAt as DateTime?;
+    } else {
+      resolvedCompletedAt = this.completedAt;
+    }
+
+    final String? resolvedEtag;
+    if (clearEtag) {
+      resolvedEtag = null;
+    } else if (!identical(etag, _sentinel)) {
+      resolvedEtag = etag as String?;
+    } else {
+      resolvedEtag = this.etag;
+    }
+
+    final String? resolvedLastModified;
+    if (clearLastModified) {
+      resolvedLastModified = null;
+    } else if (!identical(lastModified, _sentinel)) {
+      resolvedLastModified = lastModified as String?;
+    } else {
+      resolvedLastModified = this.lastModified;
+    }
+
+    final String? resolvedReferrer;
+    if (clearReferrer) {
+      resolvedReferrer = null;
+    } else if (!identical(referrer, _sentinel)) {
+      resolvedReferrer = referrer as String?;
+    } else {
+      resolvedReferrer = this.referrer;
+    }
 
     return DownloadTask(
       id: id ?? this.id,
@@ -166,23 +209,20 @@ class DownloadTask {
       status: status ?? this.status,
       resumable: resumable ?? this.resumable,
       speedBytesPerSec: speedBytesPerSec ?? this.speedBytesPerSec,
-      errorMessage: shouldClearError
-          ? null
-          : (errorMessage ?? this.errorMessage),
+      errorMessage: resolvedErrorMessage,
       createdAt: createdAt ?? this.createdAt,
-      completedAt: shouldClearCompletedAt
-          ? null
-          : (completedAt ?? this.completedAt),
+      completedAt: resolvedCompletedAt,
       category: category ?? this.category,
       connectionCount: connectionCount ?? this.connectionCount,
-      etag: etag ?? this.etag,
-      lastModified: lastModified ?? this.lastModified,
-      referrer: referrer ?? this.referrer,
+      etag: resolvedEtag,
+      lastModified: resolvedLastModified,
+      referrer: resolvedReferrer,
       queueName: queueName ?? this.queueName,
       segments: segments ?? this.segments,
       speedSamples: speedSamples ?? this.speedSamples,
       eventLog: eventLog ?? this.eventLog,
       elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+      rev: rev ?? (this.rev + 1),
     );
   }
 
@@ -208,6 +248,7 @@ class DownloadTask {
       'queueName': queueName,
       'segments': segments.map((s) => s.toJson()).toList(),
       'elapsedSeconds': elapsedSeconds,
+      'rev': rev,
     };
   }
 
@@ -261,6 +302,45 @@ class DownloadTask {
           json['queueName'] as String? ?? NetGetConstants.defaultQueueName,
       segments: parsedSegments,
       elapsedSeconds: json['elapsedSeconds'] as int? ?? 0,
+      rev: json['rev'] as int? ?? 0,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is DownloadTask &&
+        other.id == id &&
+        other.url == url &&
+        other.fileName == fileName &&
+        other.savePath == savePath &&
+        other.totalBytes == totalBytes &&
+        other.downloadedBytes == downloadedBytes &&
+        other.status == status &&
+        other.resumable == resumable &&
+        other.speedBytesPerSec == speedBytesPerSec &&
+        other.errorMessage == errorMessage &&
+        other.createdAt == createdAt &&
+        other.completedAt == completedAt &&
+        other.category == category &&
+        other.connectionCount == connectionCount &&
+        other.etag == etag &&
+        other.lastModified == lastModified &&
+        other.referrer == referrer &&
+        other.queueName == queueName &&
+        other.elapsedSeconds == elapsedSeconds &&
+        other.rev == rev;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    status,
+    downloadedBytes,
+    totalBytes,
+    speedBytesPerSec,
+    etag,
+    lastModified,
+    rev,
+  );
 }

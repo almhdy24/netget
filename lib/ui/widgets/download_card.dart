@@ -308,8 +308,34 @@ class DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final notifier = manager.getTaskNotifier(task.id);
+    if (notifier == null) {
+      final content = isDense
+          ? _buildDenseRow(context, task)
+          : _buildCard(context, task);
+      return Dismissible(
+        key: ValueKey('dismiss_${task.id}'),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (direction) => _confirmDelete(context),
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.error,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Icon(
+            Icons.delete_outline,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+        child: content,
+      );
+    }
+
     return ValueListenableBuilder<DownloadTask>(
-      valueListenable: manager.getTaskNotifier(task.id),
+      valueListenable: notifier,
       builder: (context, currentTask, _) {
         final content = isDense
             ? _buildDenseRow(context, currentTask)

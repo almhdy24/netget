@@ -8,6 +8,7 @@ import '../core/download_failure.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
 import '../data/download_repository.dart';
+import '../data/task_store.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
 import 'analytics_service.dart';
@@ -89,7 +90,7 @@ class DownloadManager extends ChangeNotifier {
   final HttpClient Function()? _clientFactory;
   final Future<Directory> Function()? _downloadsDirResolver;
 
-  List<DownloadTask> _tasks = [];
+  late final TaskStore _store;
   final Map<String, _ActiveDownloadContext> _activeContexts = {};
   bool _isInitialized = false;
 
@@ -104,7 +105,8 @@ class DownloadManager extends ChangeNotifier {
   // In-memory desktop enhancements: ring buffers & state
   final Map<String, List<TaskLogEvent>> _taskLogs = {};
   final Map<String, List<double>> _taskSpeedSamples = {};
-  final Map<String, int> _taskElapsedSeconds = {};
+  final Map<String, DateTime> _taskStartTimes = {};
+  final Map<String, int> _taskBaseElapsedSeconds = {};
   final Map<String, QueueSchedule> _queueSchedules = {};
   Timer? _schedulerTimer;
   SpeedMode _speedMode = SpeedMode.unlimited;
@@ -113,43 +115,10 @@ class DownloadManager extends ChangeNotifier {
     NetGetConstants.defaultQueueName: true,
   };
   final Map<String, Timer> _networkRetryTimers = {};
-  final Map<String, ValueNotifier<DownloadTask>> _taskNotifiers = {};
 
-  /// Retrieves a task-specific ValueNotifier to enable granular widget rebuilding without rebuilding the entire list.
-  ValueNotifier<DownloadTask> getTaskNotifier(String taskId) {
-    final idx = _tasks.indexWhere((t) => t.id == taskId);
-    if (idx >= 0) {
-      final task = _tasks[idx];
-      final notifier = _taskNotifiers[taskId];
-      if (notifier != null) {
-        if (notifier.value != task) {
-          notifier.value = task;
-        }
-        return notifier;
-      }
-      return _taskNotifiers[taskId] = ValueNotifier<DownloadTask>(task);
-    }
-    return _taskNotifiers.putIfAbsent(
-      taskId,
-      () => ValueNotifier<DownloadTask>(
-        DownloadTask(
-          id: taskId,
-          url: '',
-          fileName: '',
-          savePath: '',
-          status: DownloadStatus.queued,
-          createdAt: DateTime.now(),
-        ),
-      ),
-    );
-  }
-
-  void _notifyTaskChanged(String taskId, DownloadTask updated) {
-    final notifier = _taskNotifiers[taskId];
-    if (notifier != null && notifier.value != updated) {
-      notifier.value = updated;
-    }
-  }
+  /// Retrieves a task-specific ValueNotifier without mutating state in build or creating placeholder tasks.
+  ValueNotifier<DownloadTask>? getTaskNotifier(String taskId) =>
+      _store.getNotifier(taskId);
 
   /// Emits a progress tick for a task, updating its in-memory state and notifying
   /// the task's ValueNotifier for immediate UI rebuild without waiting for disk throttle.
@@ -160,27 +129,34 @@ class DownloadManager extends ChangeNotifier {
     double speedBytesPerSec = 0.0,
     List<DownloadSegment>? segments,
   }) {
-    final idx = _tasks.indexWhere((t) => t.id == taskId);
-    if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
+    final task = _store.getById(taskId);
+    if (task != null && task.status == DownloadStatus.downloading) {
       final samples = _taskSpeedSamples.putIfAbsent(taskId, () => []);
       samples.add(speedBytesPerSec);
       if (samples.length > 60) samples.removeAt(0);
 
-      final currentElapsed = (_taskElapsedSeconds[taskId] ?? 0) + 1;
-      _taskElapsedSeconds[taskId] = currentElapsed;
+      final startTime = _taskStartTimes.putIfAbsent(taskId, clock);
+      final sessionElapsed = clock().difference(startTime).inSeconds;
+      final currentElapsed =
+          (_taskBaseElapsedSeconds[taskId] ?? task.elapsedSeconds) +
+          sessionElapsed;
 
-      _tasks[idx] = _tasks[idx].copyWith(
-        downloadedBytes: downloadedBytes,
-        totalBytes: (totalBytes != null && totalBytes > 0)
-            ? totalBytes
-            : _tasks[idx].totalBytes,
-        speedBytesPerSec: speedBytesPerSec,
-        elapsedSeconds: currentElapsed,
-        segments: segments ?? _tasks[idx].segments,
+      final updated = _store.update(
+        taskId,
+        (t) => t.copyWith(
+          downloadedBytes: downloadedBytes,
+          totalBytes: (totalBytes != null && totalBytes > 0)
+              ? totalBytes
+              : t.totalBytes,
+          speedBytesPerSec: speedBytesPerSec,
+          elapsedSeconds: currentElapsed,
+          segments: segments ?? t.segments,
+        ),
+        notifyAggregate: true,
       );
-      _notifyTaskChanged(taskId, _tasks[idx]);
-      _syncActiveDownloadsToNative();
-      scheduleThrottledSave();
+      if (updated != null) {
+        _syncActiveDownloadsToNative();
+      }
     }
   }
 
@@ -204,7 +180,7 @@ class DownloadManager extends ChangeNotifier {
   void _syncActiveDownloadsToNative({bool force = false}) {
     if (!Platform.isAndroid && !isAndroidForTesting) return;
 
-    final downloadingTasks = _tasks
+    final downloadingTasks = tasks
         .where((t) => t.status == DownloadStatus.downloading)
         .toList();
     final currentDownloadingCount = downloadingTasks.length;
@@ -290,7 +266,7 @@ class DownloadManager extends ChangeNotifier {
       _saveThrottleTimer = null;
       _hasPendingSave = false;
       _lastSaveTime = now;
-      _repository.saveTasks(_tasks);
+      _repository.saveTasks(_store.tasks);
     } else {
       _hasPendingSave = true;
       if (_saveThrottleTimer == null || !_saveThrottleTimer!.isActive) {
@@ -299,7 +275,7 @@ class DownloadManager extends ChangeNotifier {
           if (_hasPendingSave) {
             _hasPendingSave = false;
             _lastSaveTime = clock();
-            _repository.saveTasks(_tasks);
+            _repository.saveTasks(_store.tasks);
           }
         });
       }
@@ -312,7 +288,7 @@ class DownloadManager extends ChangeNotifier {
     _saveThrottleTimer = null;
     _hasPendingSave = false;
     _lastSaveTime = clock();
-    await _repository.saveTasks(_tasks);
+    await _repository.saveTasks(_store.tasks);
   }
 
   DownloadManager({
@@ -321,35 +297,41 @@ class DownloadManager extends ChangeNotifier {
     Future<Directory> Function()? downloadsDirResolver,
   }) : _repository = repository,
        _clientFactory = clientFactory,
-       _downloadsDirResolver = downloadsDirResolver;
+       _downloadsDirResolver = downloadsDirResolver {
+    _store = TaskStore(
+      onTasksChanged: notifyListeners,
+      onTaskPersist: (task) => _repository.saveTask(task),
+      onScheduleSave: (tasks) => scheduleThrottledSave(),
+    );
+  }
 
-  List<DownloadTask> get tasks => List.unmodifiable(_tasks);
+  List<DownloadTask> get tasks => _store.tasks;
 
   List<DownloadTask> get activeTasks =>
-      _tasks.where((t) => t.status.isActive).toList();
+      tasks.where((t) => t.status.isActive).toList();
 
   List<DownloadTask> get pausedTasks =>
-      _tasks.where((t) => t.status.isPaused).toList();
+      tasks.where((t) => t.status.isPaused).toList();
 
   List<DownloadTask> get completedTasks =>
-      _tasks.where((t) => t.status.isCompleted).toList();
+      tasks.where((t) => t.status.isCompleted).toList();
 
   List<DownloadTask> get failedTasks =>
-      _tasks.where((t) => t.status.isFailed).toList();
+      tasks.where((t) => t.status.isFailed).toList();
 
   int get totalDownloadedBytes =>
-      _tasks.fold<int>(0, (sum, task) => sum + task.downloadedBytes);
+      tasks.fold<int>(0, (sum, task) => sum + task.downloadedBytes);
 
-  double get currentTotalSpeed => _tasks
+  double get currentTotalSpeed => tasks
       .where((t) => t.status == DownloadStatus.downloading)
       .fold<double>(0.0, (sum, task) => sum + task.speedBytesPerSec);
 
   int get queuedCount =>
-      _tasks.where((t) => t.status == DownloadStatus.queued).length;
+      tasks.where((t) => t.status == DownloadStatus.queued).length;
 
   int get completedTodayCount {
     final now = DateTime.now();
-    return _tasks.where((t) {
+    return tasks.where((t) {
       if (!t.status.isCompleted || t.completedAt == null) return false;
       final c = t.completedAt!;
       return c.year == now.year && c.month == now.month && c.day == now.day;
@@ -416,7 +398,7 @@ class DownloadManager extends ChangeNotifier {
     final clean = url.trim();
     if (clean.isEmpty) return null;
     try {
-      return _tasks.firstWhere((t) => t.url.trim() == clean);
+      return _store.tasks.firstWhere((t) => t.url.trim() == clean);
     } catch (_) {
       return null;
     }
@@ -425,7 +407,8 @@ class DownloadManager extends ChangeNotifier {
   /// Initializes the manager and loads existing persisted tasks.
   Future<void> init({bool forceReload = false}) async {
     if (_isInitialized && !forceReload) return;
-    _tasks = await _repository.loadTasks();
+    final loaded = await _repository.loadTasks();
+    _store.init(loaded);
     _isInitialized = true;
     _startSchedulerTimer();
     _initNativeBridge();
@@ -449,37 +432,18 @@ class DownloadManager extends ChangeNotifier {
             final downloaded = (event['downloadedBytes'] as num?)?.toInt();
             final speed = (event['speedBytesPerSec'] as num?)?.toDouble();
             if (taskId != null) {
-              final idx = _tasks.indexWhere((t) => t.id == taskId);
-              if (idx >= 0) {
-                final updated = _tasks[idx].copyWith(
-                  downloadedBytes: downloaded ?? _tasks[idx].downloadedBytes,
-                  speedBytesPerSec: speed ?? _tasks[idx].speedBytesPerSec,
-                );
-                _tasks[idx] = updated;
-                _notifyTaskChanged(taskId, updated);
-                _throttleAggregateNotify();
-              }
+              _store.update(
+                taskId,
+                (t) => t.copyWith(
+                  downloadedBytes: downloaded ?? t.downloadedBytes,
+                  speedBytesPerSec: speed ?? t.speedBytesPerSec,
+                ),
+                notifyAggregate: true,
+              );
             }
           }
         }, onError: (_) {});
       } catch (_) {}
-    }
-  }
-
-  DateTime _lastAggregateNotify = DateTime.fromMillisecondsSinceEpoch(0);
-  Timer? _aggregateNotifyTimer;
-
-  void _throttleAggregateNotify() {
-    final now = DateTime.now();
-    if (now.difference(_lastAggregateNotify).inMilliseconds >= 250) {
-      _lastAggregateNotify = now;
-      notifyListeners();
-    } else {
-      _aggregateNotifyTimer ??= Timer(const Duration(milliseconds: 250), () {
-        _aggregateNotifyTimer = null;
-        _lastAggregateNotify = DateTime.now();
-        notifyListeners();
-      });
     }
   }
 
@@ -579,7 +543,7 @@ class DownloadManager extends ChangeNotifier {
     }
 
     final id =
-        'task_${DateTime.now().millisecondsSinceEpoch}_${_tasks.length + 1}';
+        'task_${DateTime.now().millisecondsSinceEpoch}_${_store.length + 1}';
     final rawName = (customFileName != null && customFileName.trim().isNotEmpty)
         ? customFileName.trim()
         : NetGetUtils.extractFileNameFromUrl(cleanUrl);
@@ -631,7 +595,7 @@ class DownloadManager extends ChangeNotifier {
       logEvent(id, 'INFO', 'Download marked for later');
     }
 
-    _tasks.insert(0, task);
+    _store.add(task);
     await saveImmediate();
     notifyListeners();
 
@@ -648,11 +612,10 @@ class DownloadManager extends ChangeNotifier {
 
   /// Refreshes expired link for a task after verifying compatibility.
   Future<void> refreshTaskUrl(String taskId, String newUrl) async {
-    final idx = _tasks.indexWhere((t) => t.id == taskId);
-    if (idx < 0) {
+    final current = _store.getById(taskId);
+    if (current == null) {
       throw Exception('Task not found');
     }
-    final current = _tasks[idx];
     final analysis = await analyzeUrl(newUrl);
 
     if (current.totalBytes > 0 &&
@@ -695,24 +658,26 @@ class DownloadManager extends ChangeNotifier {
       );
     }
 
-    _tasks[idx] = current.copyWith(
-      url: newUrl.trim(),
-      etag: analysis.etag ?? current.etag,
-      lastModified: analysis.lastModified ?? current.lastModified,
+    _store.update(
+      taskId,
+      (t) => t.copyWith(
+        url: newUrl.trim(),
+        etag: analysis.etag ?? t.etag,
+        lastModified: analysis.lastModified ?? t.lastModified,
+      ),
+      notifyAggregate: true,
     );
 
     logEvent(taskId, 'INFO', 'Download URL refreshed: $newUrl');
     await saveImmediate();
-    notifyListeners();
   }
 
   /// Restarts download from scratch (deletes partial file).
   Future<void> reDownload(String taskId) async {
     _networkRetryTimers.remove(taskId)?.cancel();
-    final idx = _tasks.indexWhere((t) => t.id == taskId);
-    if (idx < 0) return;
+    final task = _store.getById(taskId);
+    if (task == null) return;
 
-    final task = _tasks[idx];
     if (task.status.isActive) {
       await cancelDownload(taskId, deleteFile: true);
     } else {
@@ -722,34 +687,36 @@ class DownloadManager extends ChangeNotifier {
       } catch (_) {}
     }
 
-    _tasks[idx] = task.copyWith(
-      downloadedBytes: 0,
-      status: DownloadStatus.queued,
-      speedBytesPerSec: 0.0,
-      errorMessage: null,
-      clearError: true,
-      completedAt: null,
-      clearCompletedAt: true,
-      elapsedSeconds: 0,
-      segments: SegmentPlanner.planInitialSegments(
-        totalBytes: task.totalBytes,
-        connectionCount: task.connectionCount,
-        resumable: task.resumable,
+    _store.update(
+      taskId,
+      (t) => t.copyWith(
+        downloadedBytes: 0,
+        status: DownloadStatus.queued,
+        speedBytesPerSec: 0.0,
+        clearError: true,
+        clearCompletedAt: true,
+        elapsedSeconds: 0,
+        segments: SegmentPlanner.planInitialSegments(
+          totalBytes: t.totalBytes,
+          connectionCount: t.connectionCount,
+          resumable: t.resumable,
+        ),
       ),
+      notifyAggregate: true,
     );
 
+    _taskStartTimes.remove(taskId);
+    _taskBaseElapsedSeconds.remove(taskId);
     _taskSpeedSamples[taskId] = [];
-    _taskElapsedSeconds[taskId] = 0;
     logEvent(taskId, 'INFO', 'Restarted download from 0 B');
 
     await saveImmediate();
-    notifyListeners();
     _processQueue();
   }
 
   /// Pauses all active/queued downloads.
   Future<void> pauseAll() async {
-    final active = _tasks
+    final active = tasks
         .where(
           (t) =>
               t.status == DownloadStatus.downloading ||
@@ -763,7 +730,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Resumes all paused/failed downloads.
   Future<void> resumeAll() async {
-    final paused = _tasks
+    final paused = tasks
         .where(
           (t) =>
               t.status == DownloadStatus.paused ||
@@ -778,10 +745,9 @@ class DownloadManager extends ChangeNotifier {
   /// Pauses an active downloading task.
   Future<void> pauseDownload(String id) async {
     _networkRetryTimers.remove(id)?.cancel();
-    final index = _tasks.indexWhere((t) => t.id == id);
-    if (index < 0) return;
+    final task = _store.getById(id);
+    if (task == null) return;
 
-    final task = _tasks[index];
     if (task.status != DownloadStatus.downloading &&
         task.status != DownloadStatus.queued) {
       return;
@@ -802,14 +768,17 @@ class DownloadManager extends ChangeNotifier {
       _activeContexts.remove(id);
     }
 
-    _tasks[index] = task.copyWith(
-      status: DownloadStatus.paused,
-      speedBytesPerSec: 0.0,
+    _taskBaseElapsedSeconds[id] = task.elapsedSeconds;
+    _taskStartTimes.remove(id);
+
+    _store.update(
+      id,
+      (t) => t.copyWith(status: DownloadStatus.paused, speedBytesPerSec: 0.0),
+      notifyAggregate: true,
     );
 
     logEvent(id, 'INFO', 'Download paused');
     await saveImmediate();
-    notifyListeners();
     AnalyticsService.trackDownloadPaused();
 
     _processQueue();
@@ -818,25 +787,29 @@ class DownloadManager extends ChangeNotifier {
   /// Resumes a paused or failed task.
   Future<void> resumeDownload(String id) async {
     _networkRetryTimers.remove(id)?.cancel();
-    final index = _tasks.indexWhere((t) => t.id == id);
-    if (index < 0) return;
+    final task = _store.getById(id);
+    if (task == null) return;
 
-    final task = _tasks[index];
     if (task.status == DownloadStatus.downloading ||
         task.status == DownloadStatus.completed) {
       return;
     }
 
-    _tasks[index] = task.copyWith(
-      status: DownloadStatus.queued,
-      errorMessage: null,
-      clearError: true,
-      speedBytesPerSec: 0.0,
+    _taskBaseElapsedSeconds[id] = task.elapsedSeconds;
+    _taskStartTimes.remove(id);
+
+    _store.update(
+      id,
+      (t) => t.copyWith(
+        status: DownloadStatus.queued,
+        clearError: true,
+        speedBytesPerSec: 0.0,
+      ),
+      notifyAggregate: true,
     );
 
     logEvent(id, 'INFO', 'Download queued for resume');
     await saveImmediate();
-    notifyListeners();
     AnalyticsService.trackDownloadResumed();
 
     _processQueue();
@@ -851,10 +824,9 @@ class DownloadManager extends ChangeNotifier {
   /// Cancels an active or queued download.
   Future<void> cancelDownload(String id, {bool deleteFile = false}) async {
     _networkRetryTimers.remove(id)?.cancel();
-    final index = _tasks.indexWhere((t) => t.id == id);
-    if (index < 0) return;
+    final task = _store.getById(id);
+    if (task == null) return;
 
-    final task = _tasks[index];
     final ctx = _activeContexts[id];
     if (ctx != null) {
       ctx.isCancelled = true;
@@ -879,15 +851,21 @@ class DownloadManager extends ChangeNotifier {
       } catch (_) {}
     }
 
-    _tasks[index] = task.copyWith(
-      status: DownloadStatus.cancelled,
-      speedBytesPerSec: 0.0,
-      downloadedBytes: deleteFile ? 0 : task.downloadedBytes,
+    _taskStartTimes.remove(id);
+    _taskBaseElapsedSeconds.remove(id);
+
+    _store.update(
+      id,
+      (t) => t.copyWith(
+        status: DownloadStatus.cancelled,
+        speedBytesPerSec: 0.0,
+        downloadedBytes: deleteFile ? 0 : t.downloadedBytes,
+      ),
+      notifyAggregate: true,
     );
 
     logEvent(id, 'WARN', 'Download cancelled');
     await saveImmediate();
-    notifyListeners();
     AnalyticsService.trackDownloadCancelled();
 
     _processQueue();
@@ -896,10 +874,9 @@ class DownloadManager extends ChangeNotifier {
   /// Deletes a task from history, optionally deleting the file from storage.
   Future<void> deleteTask(String id, {bool deleteFile = false}) async {
     _networkRetryTimers.remove(id)?.cancel();
-    final index = _tasks.indexWhere((t) => t.id == id);
-    if (index < 0) return;
+    final task = _store.getById(id);
+    if (task == null) return;
 
-    final task = _tasks[index];
     if (task.status.isActive) {
       await cancelDownload(id, deleteFile: deleteFile);
     } else if (deleteFile && task.savePath.isNotEmpty) {
@@ -911,11 +888,11 @@ class DownloadManager extends ChangeNotifier {
       } catch (_) {}
     }
 
-    _tasks.removeWhere((t) => t.id == id);
+    _store.remove(id);
     _taskLogs.remove(id);
     _taskSpeedSamples.remove(id);
-    _taskElapsedSeconds.remove(id);
-    _taskNotifiers.remove(id)?.dispose();
+    _taskStartTimes.remove(id);
+    _taskBaseElapsedSeconds.remove(id);
 
     await saveImmediate();
     notifyListeners();
@@ -923,7 +900,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Clears all completed tasks from history.
   Future<void> clearCompleted({bool deleteFiles = false}) async {
-    final completed = _tasks.where((t) => t.status.isCompleted).toList();
+    final completed = tasks.where((t) => t.status.isCompleted).toList();
     for (final task in completed) {
       if (deleteFiles && task.savePath.isNotEmpty) {
         try {
@@ -935,9 +912,10 @@ class DownloadManager extends ChangeNotifier {
       }
       _taskLogs.remove(task.id);
       _taskSpeedSamples.remove(task.id);
-      _taskElapsedSeconds.remove(task.id);
+      _taskStartTimes.remove(task.id);
+      _taskBaseElapsedSeconds.remove(task.id);
     }
-    _tasks.removeWhere((t) => t.status.isCompleted);
+    _store.removeWhere((t) => t.status.isCompleted);
     await saveImmediate();
     notifyListeners();
   }
@@ -949,10 +927,8 @@ class DownloadManager extends ChangeNotifier {
 
     void emitLatest() {
       if (controller.isClosed) return;
-      final idx = _tasks.indexWhere((t) => t.id == taskId);
-      if (idx < 0) return;
-
-      final task = _tasks[idx];
+      final task = _store.getById(taskId);
+      if (task == null) return;
       final segments = task.segments.isNotEmpty
           ? task.segments
           : [
@@ -968,7 +944,7 @@ class DownloadManager extends ChangeNotifier {
           _taskSpeedSamples[taskId] ??
           (task.speedBytesPerSec > 0 ? [task.speedBytesPerSec] : []);
       final logs = _taskLogs[taskId] ?? [];
-      final elapsed = _taskElapsedSeconds[taskId] ?? task.elapsedSeconds;
+      final elapsed = task.elapsedSeconds;
 
       controller.add(
         TaskDetailsUpdate(
@@ -1013,7 +989,7 @@ class DownloadManager extends ChangeNotifier {
 
   void startQueue(String queueName) {
     _activeQueues[queueName] = true;
-    final queuedInThisQueue = _tasks
+    final queuedInThisQueue = tasks
         .where(
           (t) => t.queueName == queueName && t.status == DownloadStatus.paused,
         )
@@ -1026,7 +1002,7 @@ class DownloadManager extends ChangeNotifier {
 
   void stopQueue(String queueName) {
     _activeQueues[queueName] = false;
-    final activeInThisQueue = _tasks
+    final activeInThisQueue = tasks
         .where((t) => t.queueName == queueName && t.status.isActive)
         .toList();
     for (final t in activeInThisQueue) {
@@ -1076,15 +1052,11 @@ class DownloadManager extends ChangeNotifier {
   void dispose() {
     _schedulerTimer?.cancel();
     _saveThrottleTimer?.cancel();
-    _aggregateNotifyTimer?.cancel();
     for (final t in _networkRetryTimers.values) {
       t.cancel();
     }
     _networkRetryTimers.clear();
-    for (final n in _taskNotifiers.values) {
-      n.dispose();
-    }
-    _taskNotifiers.clear();
+    _store.dispose();
     _nativeEventSubscription?.cancel();
     _nativeEventSubscription = null;
     if (_reportedActiveCount > 0) {
@@ -1099,7 +1071,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Checks queue and starts pending downloads if under max concurrency limit.
   void _processQueue() {
-    final downloadingCount = _tasks
+    final downloadingCount = tasks
         .where((t) => t.status == DownloadStatus.downloading)
         .length;
 
@@ -1107,7 +1079,7 @@ class DownloadManager extends ChangeNotifier {
         NetGetConstants.maxConcurrentDownloads - downloadingCount;
     if (availableSlots <= 0) return;
 
-    final queuedTasks = _tasks
+    final queuedTasks = tasks
         .where(
           (t) =>
               t.status == DownloadStatus.queued &&
@@ -1132,21 +1104,19 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> _startDownloading(String taskId) async {
-    final index = _tasks.indexWhere((t) => t.id == taskId);
-    if (index < 0) return;
+    final task = _store.getById(taskId);
+    if (task == null || task.status == DownloadStatus.downloading) return;
 
-    var currentTask = _tasks[index];
-    if (currentTask.status == DownloadStatus.downloading) return;
-
-    currentTask = currentTask.copyWith(
-      status: DownloadStatus.downloading,
-      speedBytesPerSec: 0.0,
-      errorMessage: null,
-      clearError: true,
-    );
-    _tasks[index] = currentTask;
+    final currentTask = _store.update(
+      taskId,
+      (t) => t.copyWith(
+        status: DownloadStatus.downloading,
+        speedBytesPerSec: 0.0,
+        clearError: true,
+      ),
+      notifyAggregate: true,
+    )!;
     logEvent(taskId, 'PROGRESS', 'Connecting to server...');
-    notifyListeners();
     AnalyticsService.trackDownloadStarted(
       connectionCount: currentTask.connectionCount,
     );
@@ -1175,17 +1145,20 @@ class DownloadManager extends ChangeNotifier {
 
       if (currentTask.status == DownloadStatus.completed ||
           areSegmentsVerifiedComplete) {
-        _tasks[index] = currentTask.copyWith(
-          downloadedBytes: currentTask.totalBytes,
-          status: DownloadStatus.completed,
-          speedBytesPerSec: 0.0,
-          completedAt: currentTask.completedAt ?? DateTime.now(),
+        _store.update(
+          taskId,
+          (t) => t.copyWith(
+            downloadedBytes: t.totalBytes,
+            status: DownloadStatus.completed,
+            speedBytesPerSec: 0.0,
+            completedAt: t.completedAt ?? DateTime.now(),
+          ),
+          notifyAggregate: true,
         );
         logEvent(taskId, 'INFO', 'File already verified complete');
         _activeContexts.remove(taskId);
         client.close(force: true);
         await saveImmediate();
-        notifyListeners();
         _processQueue();
         return;
       }
@@ -1207,8 +1180,10 @@ class DownloadManager extends ChangeNotifier {
           await raf.close();
         } catch (_) {}
         existingBytes = 0;
-        currentTask = currentTask.copyWith(downloadedBytes: 0, segments: []);
-        _tasks[index] = currentTask;
+        _store.update(
+          taskId,
+          (t) => t.copyWith(downloadedBytes: 0, segments: []),
+        );
       }
 
       final uri = Uri.parse(currentTask.url);
@@ -1234,18 +1209,15 @@ class DownloadManager extends ChangeNotifier {
             );
           },
           onCheckpoint: (segs) async {
-            final idx = _tasks.indexWhere((t) => t.id == taskId);
-            if (idx >= 0) {
-              final flushedBytes = segs.fold<int>(
-                0,
-                (sum, s) => sum + s.downloadedBytes,
-              );
-              _tasks[idx] = _tasks[idx].copyWith(
-                segments: segs,
-                downloadedBytes: flushedBytes,
-              );
-              scheduleThrottledSave();
-            }
+            final flushedBytes = segs.fold<int>(
+              0,
+              (sum, s) => sum + s.downloadedBytes,
+            );
+            _store.update(
+              taskId,
+              (t) => t.copyWith(segments: segs, downloadedBytes: flushedBytes),
+            );
+            scheduleThrottledSave();
           },
           onLog: (lvl, msg) {
             logEvent(taskId, lvl, msg);
@@ -1264,15 +1236,15 @@ class DownloadManager extends ChangeNotifier {
           }
           if (probe.isRangeSupported && probe.totalBytes > 256 * 1024) {
             shouldUseMulti = true;
-            final idx = _tasks.indexWhere((t) => t.id == taskId);
-            if (idx >= 0) {
-              _tasks[idx] = _tasks[idx].copyWith(
+            _store.update(
+              taskId,
+              (t) => t.copyWith(
                 totalBytes: probe.totalBytes,
-                etag: probe.etag ?? _tasks[idx].etag,
-                lastModified: probe.lastModified ?? _tasks[idx].lastModified,
+                etag: probe.etag ?? t.etag,
+                lastModified: probe.lastModified ?? t.lastModified,
                 resumable: true,
-              );
-            }
+              ),
+            );
           }
         } catch (e) {
           if (e is HttpException && e.message.contains('Server file changed')) {
@@ -1286,15 +1258,12 @@ class DownloadManager extends ChangeNotifier {
               await raf.truncate(0);
               await raf.close();
             } catch (_) {}
-            final idx = _tasks.indexWhere((t) => t.id == taskId);
-            if (idx >= 0) {
-              _tasks[idx] = _tasks[idx].copyWith(
-                downloadedBytes: 0,
-                etag: null,
-                segments: [],
-              );
-              await saveImmediate();
-            }
+            _store.update(
+              taskId,
+              (t) =>
+                  t.copyWith(downloadedBytes: 0, clearEtag: true, segments: []),
+            );
+            await saveImmediate();
             _activeContexts.remove(taskId);
             client.close(force: true);
             unawaited(_startDownloading(taskId));
@@ -1319,22 +1288,26 @@ class DownloadManager extends ChangeNotifier {
               return;
             }
 
-            final idx = _tasks.indexWhere((t) => t.id == taskId);
-            if (idx >= 0 && _tasks[idx].status == DownloadStatus.downloading) {
-              _tasks[idx] = _tasks[idx].copyWith(
-                status: DownloadStatus.completed,
-                downloadedBytes: multiDownloader.totalBytes > 0
-                    ? multiDownloader.totalBytes
-                    : _tasks[idx].downloadedBytes,
-                totalBytes: multiDownloader.totalBytes > 0
-                    ? multiDownloader.totalBytes
-                    : _tasks[idx].totalBytes,
-                speedBytesPerSec: 0.0,
-                completedAt: DateTime.now(),
-                segments: multiDownloader.segments,
-              );
+            final currentDownloading = _store.getById(taskId);
+            if (currentDownloading != null &&
+                currentDownloading.status == DownloadStatus.downloading) {
+              final completedTask = _store.update(
+                taskId,
+                (t) => t.copyWith(
+                  status: DownloadStatus.completed,
+                  downloadedBytes: multiDownloader.totalBytes > 0
+                      ? multiDownloader.totalBytes
+                      : t.downloadedBytes,
+                  totalBytes: multiDownloader.totalBytes > 0
+                      ? multiDownloader.totalBytes
+                      : t.totalBytes,
+                  speedBytesPerSec: 0.0,
+                  completedAt: DateTime.now(),
+                  segments: multiDownloader.segments,
+                ),
+                notifyAggregate: true,
+              )!;
               logEvent(taskId, 'INFO', 'Download completed successfully!');
-              final completedTask = _tasks[idx];
               final durationSec = completedTask.completedAt != null
                   ? completedTask.completedAt!
                         .difference(completedTask.createdAt)
@@ -1350,12 +1323,11 @@ class DownloadManager extends ChangeNotifier {
                 category: completedTask.category.name,
               );
               await saveImmediate();
-              notifyListeners();
               unawaited(
                 _invokeNative('notifyDownloadCompleted', {
                   'taskId': taskId,
-                  'fileName': _tasks[idx].fileName,
-                  'savePath': _tasks[idx].savePath,
+                  'fileName': completedTask.fileName,
+                  'savePath': completedTask.savePath,
                 }),
               );
             }
@@ -1374,19 +1346,19 @@ class DownloadManager extends ChangeNotifier {
                     (e.message.contains('Insufficient disk space') ||
                         e.osError?.errorCode == 28 ||
                         e.message.toLowerCase().contains('no space')))) {
-              final idx = _tasks.indexWhere((t) => t.id == taskId);
-              if (idx >= 0) {
-                _tasks[idx] = _tasks[idx].copyWith(
+              _store.update(
+                taskId,
+                (t) => t.copyWith(
                   status: DownloadStatus.failed,
                   errorMessage:
                       'Disk is full. Please free up storage space to resume download.',
                   speedBytesPerSec: 0.0,
-                );
-                logEvent(taskId, 'ERROR', 'Disk full: $e');
-                AnalyticsService.trackDownloadFailed(errorType: 'storage_full');
-                await saveImmediate();
-                notifyListeners();
-              }
+                ),
+                notifyAggregate: true,
+              );
+              logEvent(taskId, 'ERROR', 'Disk full: $e');
+              AnalyticsService.trackDownloadFailed(errorType: 'storage_full');
+              await saveImmediate();
               _activeContexts.remove(taskId);
               client.close(force: true);
               _processQueue();
@@ -1404,15 +1376,15 @@ class DownloadManager extends ChangeNotifier {
                 await raf.truncate(0);
                 await raf.close();
               } catch (_) {}
-              final idx = _tasks.indexWhere((t) => t.id == taskId);
-              if (idx >= 0) {
-                _tasks[idx] = _tasks[idx].copyWith(
+              _store.update(
+                taskId,
+                (t) => t.copyWith(
                   downloadedBytes: 0,
-                  etag: null,
+                  clearEtag: true,
                   segments: [],
-                );
-                await saveImmediate();
-              }
+                ),
+              );
+              await saveImmediate();
               _activeContexts.remove(taskId);
               client.close(force: true);
               unawaited(_startDownloading(taskId));
@@ -1572,16 +1544,19 @@ class DownloadManager extends ChangeNotifier {
 
       var downloadedBytes = existingBytes;
 
-      _tasks[index] = currentTask.copyWith(
-        fileName: updatedFileName,
-        totalBytes: totalBytes,
-        downloadedBytes: downloadedBytes,
-        resumable: resumable,
-        etag: newEtag,
-        lastModified: newLastModified,
-        segments: segments,
+      _store.update(
+        taskId,
+        (t) => t.copyWith(
+          fileName: updatedFileName,
+          totalBytes: totalBytes,
+          downloadedBytes: downloadedBytes,
+          resumable: resumable,
+          etag: newEtag,
+          lastModified: newLastModified,
+          segments: segments,
+        ),
+        notifyAggregate: true,
       );
-      notifyListeners();
 
       final sink = file.openWrite(
         mode: isAppend ? FileMode.append : FileMode.write,
@@ -1631,37 +1606,39 @@ class DownloadManager extends ChangeNotifier {
           client?.close(force: true);
           _activeContexts.remove(taskId);
 
-          final idx = _tasks.indexWhere((t) => t.id == taskId);
-          if (idx >= 0) {
-            final t = _tasks[idx];
-            if (!t.status.isPaused && !t.status.isCancelled) {
-              final failureCode = DownloadFailureMapper.mapException(error);
-              final cleanMsg = failureCode.localizedMessage();
-              _tasks[idx] = t.copyWith(
+          final currentT = _store.getById(taskId);
+          if (currentT != null &&
+              !currentT.status.isPaused &&
+              !currentT.status.isCancelled) {
+            final failureCode = DownloadFailureMapper.mapException(error);
+            final cleanMsg = failureCode.localizedMessage();
+            final failedTask = _store.update(
+              taskId,
+              (t) => t.copyWith(
                 status: DownloadStatus.failed,
                 errorMessage: cleanMsg,
                 speedBytesPerSec: 0.0,
                 downloadedBytes: downloadedBytes,
-              );
-              logEvent(taskId, 'ERROR', 'Error ($failureCode): $error');
-              AnalyticsService.trackDownloadFailed(
-                errorType: failureCode.name,
-                httpStatus: failureCode == DownloadFailureCode.http403
-                    ? 403
-                    : (failureCode == DownloadFailureCode.http404 ? 404 : null),
-              );
-              await saveImmediate();
-              notifyListeners();
-              unawaited(
-                _invokeNative('notifyDownloadFailed', {
-                  'taskId': taskId,
-                  'fileName': _tasks[idx].fileName,
-                  'errorMessage': cleanMsg,
-                }),
-              );
-              if (failureCode == DownloadFailureCode.noConnection) {
-                _scheduleNetworkRetry(taskId);
-              }
+              ),
+              notifyAggregate: true,
+            )!;
+            logEvent(taskId, 'ERROR', 'Error ($failureCode): $error');
+            AnalyticsService.trackDownloadFailed(
+              errorType: failureCode.name,
+              httpStatus: failureCode == DownloadFailureCode.http403
+                  ? 403
+                  : (failureCode == DownloadFailureCode.http404 ? 404 : null),
+            );
+            await saveImmediate();
+            unawaited(
+              _invokeNative('notifyDownloadFailed', {
+                'taskId': taskId,
+                'fileName': failedTask.fileName,
+                'errorMessage': cleanMsg,
+              }),
+            );
+            if (failureCode == DownloadFailureCode.noConnection) {
+              _scheduleNetworkRetry(taskId);
             }
           }
           _processQueue();
@@ -1672,47 +1649,47 @@ class DownloadManager extends ChangeNotifier {
           client?.close(force: true);
           _activeContexts.remove(taskId);
 
-          final idx = _tasks.indexWhere((t) => t.id == taskId);
-          if (idx >= 0) {
-            final t = _tasks[idx];
-            if (t.status == DownloadStatus.downloading) {
-              if (segments.isNotEmpty) {
-                segments[0] = segments.first.copyWith(isCompleted: true);
-              }
-              _tasks[idx] = t.copyWith(
+          final currentT = _store.getById(taskId);
+          if (currentT != null &&
+              currentT.status == DownloadStatus.downloading) {
+            if (segments.isNotEmpty) {
+              segments[0] = segments.first.copyWith(isCompleted: true);
+            }
+            final completedTask = _store.update(
+              taskId,
+              (t) => t.copyWith(
                 status: DownloadStatus.completed,
                 downloadedBytes: downloadedBytes,
                 totalBytes: totalBytes > 0 ? totalBytes : downloadedBytes,
                 speedBytesPerSec: 0.0,
                 completedAt: DateTime.now(),
                 segments: segments,
-              );
-              logEvent(taskId, 'INFO', 'Download completed successfully!');
-              final completedTask = _tasks[idx];
-              final durationSec = completedTask.completedAt != null
-                  ? completedTask.completedAt!
-                        .difference(completedTask.createdAt)
-                        .inSeconds
-                  : 0;
-              final avgSpeed = durationSec > 0
-                  ? (completedTask.downloadedBytes / durationSec).round()
-                  : 0;
-              AnalyticsService.trackDownloadCompleted(
-                totalBytes: completedTask.downloadedBytes,
-                durationSeconds: durationSec,
-                avgSpeedBytesPerSec: avgSpeed,
-                category: completedTask.category.name,
-              );
-              await saveImmediate();
-              notifyListeners();
-              unawaited(
-                _invokeNative('notifyDownloadCompleted', {
-                  'taskId': taskId,
-                  'fileName': _tasks[idx].fileName,
-                  'savePath': _tasks[idx].savePath,
-                }),
-              );
-            }
+              ),
+              notifyAggregate: true,
+            )!;
+            logEvent(taskId, 'INFO', 'Download completed successfully!');
+            final durationSec = completedTask.completedAt != null
+                ? completedTask.completedAt!
+                      .difference(completedTask.createdAt)
+                      .inSeconds
+                : 0;
+            final avgSpeed = durationSec > 0
+                ? (completedTask.downloadedBytes / durationSec).round()
+                : 0;
+            AnalyticsService.trackDownloadCompleted(
+              totalBytes: completedTask.downloadedBytes,
+              durationSeconds: durationSec,
+              avgSpeedBytesPerSec: avgSpeed,
+              category: completedTask.category.name,
+            );
+            await saveImmediate();
+            unawaited(
+              _invokeNative('notifyDownloadCompleted', {
+                'taskId': taskId,
+                'fileName': completedTask.fileName,
+                'savePath': completedTask.savePath,
+              }),
+            );
           }
           _processQueue();
         },
@@ -1724,36 +1701,38 @@ class DownloadManager extends ChangeNotifier {
       client?.close(force: true);
       _activeContexts.remove(taskId);
 
-      final idx = _tasks.indexWhere((t) => t.id == taskId);
-      if (idx >= 0) {
-        final t = _tasks[idx];
-        if (!t.status.isPaused && !t.status.isCancelled) {
-          final failureCode = DownloadFailureMapper.mapException(e);
-          final cleanMsg = failureCode.localizedMessage();
-          _tasks[idx] = t.copyWith(
+      final currentT = _store.getById(taskId);
+      if (currentT != null &&
+          !currentT.status.isPaused &&
+          !currentT.status.isCancelled) {
+        final failureCode = DownloadFailureMapper.mapException(e);
+        final cleanMsg = failureCode.localizedMessage();
+        final failedTask = _store.update(
+          taskId,
+          (t) => t.copyWith(
             status: DownloadStatus.failed,
             errorMessage: cleanMsg,
             speedBytesPerSec: 0.0,
-          );
-          logEvent(taskId, 'ERROR', 'Failure ($failureCode): $e');
-          AnalyticsService.trackDownloadFailed(
-            errorType: failureCode.name,
-            httpStatus: failureCode == DownloadFailureCode.http403
-                ? 403
-                : (failureCode == DownloadFailureCode.http404 ? 404 : null),
-          );
-          await saveImmediate();
-          notifyListeners();
-          unawaited(
-            _invokeNative('notifyDownloadFailed', {
-              'taskId': taskId,
-              'fileName': _tasks[idx].fileName,
-              'errorMessage': cleanMsg,
-            }),
-          );
-          if (failureCode == DownloadFailureCode.noConnection) {
-            _scheduleNetworkRetry(taskId);
-          }
+          ),
+          notifyAggregate: true,
+        )!;
+        logEvent(taskId, 'ERROR', 'Failure ($failureCode): $e');
+        AnalyticsService.trackDownloadFailed(
+          errorType: failureCode.name,
+          httpStatus: failureCode == DownloadFailureCode.http403
+              ? 403
+              : (failureCode == DownloadFailureCode.http404 ? 404 : null),
+        );
+        await saveImmediate();
+        unawaited(
+          _invokeNative('notifyDownloadFailed', {
+            'taskId': taskId,
+            'fileName': failedTask.fileName,
+            'errorMessage': cleanMsg,
+          }),
+        );
+        if (failureCode == DownloadFailureCode.noConnection) {
+          _scheduleNetworkRetry(taskId);
         }
       }
       _processQueue();
@@ -1764,8 +1743,8 @@ class DownloadManager extends ChangeNotifier {
     _networkRetryTimers[taskId]?.cancel();
     _networkRetryTimers[taskId] = Timer(const Duration(seconds: 5), () {
       _networkRetryTimers.remove(taskId);
-      final idx = _tasks.indexWhere((t) => t.id == taskId);
-      if (idx >= 0 && _tasks[idx].status == DownloadStatus.failed) {
+      final task = _store.getById(taskId);
+      if (task != null && task.status == DownloadStatus.failed) {
         logEvent(taskId, 'INFO', 'Automatic network retry triggered');
         retryDownload(taskId);
       }
@@ -1776,16 +1755,16 @@ class DownloadManager extends ChangeNotifier {
       _cleanErrorMessage(error);
 
   void setTaskFailureForTesting(String taskId, String error) {
-    final idx = _tasks.indexWhere((t) => t.id == taskId);
-    if (idx >= 0) {
-      _tasks[idx] = _tasks[idx].copyWith(
+    _store.update(
+      taskId,
+      (t) => t.copyWith(
         status: DownloadStatus.failed,
         errorMessage: error,
         speedBytesPerSec: 0.0,
-      );
-      saveImmediate();
-      notifyListeners();
-    }
+      ),
+      notifyAggregate: true,
+    );
+    saveImmediate();
   }
 
   String _cleanErrorMessage(dynamic error) {

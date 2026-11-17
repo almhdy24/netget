@@ -22,7 +22,7 @@ class SegmentMapPainter extends CustomPainter {
   );
 
   SegmentMapPainter({
-    required this.segments,
+    required List<DownloadSegment> segments,
     required this.totalBytes,
     required this.isCompleted,
     required this.isDark,
@@ -31,7 +31,8 @@ class SegmentMapPainter extends CustomPainter {
     Color? trackColor,
     Color? borderColor,
     Color? textColor,
-  }) : completedColor = completedColor ?? const Color(0xFF15803D),
+  }) : segments = List<DownloadSegment>.unmodifiable(segments),
+       completedColor = completedColor ?? const Color(0xFF15803D),
        trackColor =
            trackColor ??
            (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
@@ -130,10 +131,16 @@ class SegmentMapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant SegmentMapPainter oldDelegate) {
-    return oldDelegate.segments != segments ||
-        oldDelegate.totalBytes != totalBytes ||
+    if (oldDelegate.totalBytes != totalBytes ||
         oldDelegate.isCompleted != isCompleted ||
         oldDelegate.isDark != isDark ||
-        oldDelegate.primaryColor != primaryColor;
+        oldDelegate.primaryColor != primaryColor) {
+      return true;
+    }
+    if (oldDelegate.segments.length != segments.length) return true;
+    for (int i = 0; i < segments.length; i++) {
+      if (oldDelegate.segments[i] != segments[i]) return true;
+    }
+    return false;
   }
 }
