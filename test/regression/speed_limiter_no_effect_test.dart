@@ -34,6 +34,7 @@ void main() {
           savePath: saveFile.path,
           connectionCount: 1,
           clientFactory: () => HttpClient(),
+          speedLimitBytesPerSec: 256 * 1024,
         );
 
         await downloader.start();
