@@ -11,7 +11,9 @@ import android.media.AudioManager
 import android.media.SoundPool
 import android.net.Uri
 import android.os.Build
+import android.webkit.MimeTypeMap
 import androidx.core.app.NotificationCompat
+import androidx.core.content.FileProvider
 import java.io.File
 
 class NotificationHelper(private val context: Context) {
@@ -314,27 +316,52 @@ class NotificationHelper(private val context: Context) {
     fun notifyCompleted(notificationId: Int, fileName: String, savePath: String) {
         try {
             val file = File(savePath)
-            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-                setDataAndType(Uri.fromFile(file), "*/*")
+            val extension = file.extension.lowercase()
+            val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+
+            val contentUri: Uri = try {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            } catch (_: Exception) {
+                Uri.parse("content://media/external/downloads")
             }
-            val pendingIntent = PendingIntent.getActivity(
+
+            // Open Action
+            val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, mimeType)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            val openPendingIntent = PendingIntent.getActivity(
                 context,
-                notificationId,
-                viewIntent,
+                notificationId * 10 + 1,
+                openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            val notification = NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
+            // Share Action
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            val sharePendingIntent = PendingIntent.getActivity(
+                context,
+                notificationId * 10 + 2,
+                Intent.createChooser(shareIntent, fileName),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = NotificationCompat.Builder(context, STATUS_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle(context.getString(R.string.notification_download_complete))
                 .setContentText(fileName)
-                .setContentIntent(pendingIntent)
+                .setContentIntent(openPendingIntent)
                 .setAutoCancel(true)
                 .setColor(0xFF15803D.toInt())
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .build()
+                .addAction(android.R.drawable.ic_menu_view, "فتح", openPendingIntent)
+                .addAction(android.R.drawable.ic_menu_share, "مشاركة", sharePendingIntent)
 
+            val notification = builder.build()
             notificationManager.notify(notificationId, notification)
             playSound("complete")
         } catch (_: Exception) {}

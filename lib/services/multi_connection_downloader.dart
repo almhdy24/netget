@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/services.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
 
@@ -203,26 +204,35 @@ class LinkProbeResult {
 typedef DiskSpaceChecker = Future<int?> Function(String directoryPath);
 
 Future<int?> defaultDiskSpaceChecker(String directoryPath) async {
-  // On Windows, the Unix `df` binary does not exist. Return null (unknown) to proceed safely.
-  if (Platform.isWindows) {
-    return null;
+  if (Platform.isAndroid) {
+    try {
+      const platform = MethodChannel('com.elmahdi.netget/engine');
+      final availableBytes = await platform.invokeMethod<int>(
+        'getFreeDiskSpace',
+        {'path': directoryPath},
+      );
+      if (availableBytes != null && availableBytes > 0) {
+        return availableBytes;
+      }
+    } catch (_) {}
   }
-  try {
-    final result = await Process.run('df', ['-Pk', directoryPath]);
-    if (result.exitCode == 0) {
-      final lines = (result.stdout as String).trim().split('\n');
-      if (lines.length >= 2) {
-        final parts = lines[1].split(RegExp(r'\s+'));
-        if (parts.length >= 4) {
-          final availKb = int.tryParse(parts[3]);
-          if (availKb != null) {
-            return availKb * 1024;
+  if (!Platform.isWindows && !Platform.isAndroid) {
+    try {
+      final result = await Process.run('df', ['-Pk', directoryPath]);
+      if (result.exitCode == 0) {
+        final lines = (result.stdout as String).trim().split('\n');
+        if (lines.length >= 2) {
+          final parts = lines[1].split(RegExp(r'\s+'));
+          if (parts.length >= 4) {
+            final availKb = int.tryParse(parts[3]);
+            if (availKb != null) {
+              return availKb * 1024;
+            }
           }
         }
       }
-    }
-  } catch (_) {}
-  // df is unreliable on Android (different toolbox/toybox versions, SELinux): treat as unknown
+    } catch (_) {}
+  }
   return null;
 }
 
@@ -467,18 +477,25 @@ class MultiConnectionDownloader {
 
       // Verify sufficient free disk space before allocating
       if (totalBytes > 0) {
-        final checker = diskSpaceChecker ?? defaultDiskSpaceChecker;
-        final freeBytes = await checker(file.parent.path);
-        if (freeBytes == null) {
-          _log(
-            'WARN',
-            'Free disk space check returned unknown/null on Android; proceeding with download',
-          );
-        } else if (freeBytes < totalBytes) {
-          throw FileSystemException(
-            'Insufficient disk space: need $totalBytes bytes, but only $freeBytes bytes available',
-            savePath,
-          );
+        final alreadyDownloaded = segments.fold<int>(
+          0,
+          (sum, s) => sum + s.downloadedBytes,
+        );
+        final remainingBytes = totalBytes - alreadyDownloaded;
+        if (remainingBytes > 0) {
+          final checker = diskSpaceChecker ?? defaultDiskSpaceChecker;
+          final freeBytes = await checker(file.parent.path);
+          if (freeBytes == null) {
+            _log(
+              'WARN',
+              'Free disk space check returned unknown/null; proceeding with download',
+            );
+          } else if (freeBytes < remainingBytes) {
+            throw FileSystemException(
+              'Insufficient disk space: need $remainingBytes bytes, but only $freeBytes bytes available',
+              savePath,
+            );
+          }
         }
       }
 

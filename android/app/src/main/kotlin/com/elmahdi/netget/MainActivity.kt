@@ -10,13 +10,16 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
+import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
 
@@ -237,6 +240,59 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("SETTINGS_ERROR", e.message, null)
+                    }
+                }
+                "getFreeDiskSpace" -> {
+                    val path = call.argument<String>("path") ?: getExternalFilesDir(null)?.absolutePath ?: filesDir.absolutePath
+                    try {
+                        val stat = android.os.StatFs(path)
+                        val availableBytes = stat.availableBlocksLong * stat.blockSizeLong
+                        result.success(availableBytes)
+                    } catch (e: Exception) {
+                        result.error("STATFS_FAILED", e.message, null)
+                    }
+                }
+                "openFile" -> {
+                    val filePath = call.argument<String>("path") ?: ""
+                    try {
+                        val file = File(filePath)
+                        if (!file.exists()) {
+                            result.error("FILE_NOT_FOUND", "File does not exist: $filePath", null)
+                            return@setMethodCallHandler
+                        }
+                        val extension = file.extension.lowercase()
+                        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+                        val contentUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(contentUri, mimeType)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("OPEN_FAILED", e.message, null)
+                    }
+                }
+                "shareFile" -> {
+                    val filePath = call.argument<String>("path") ?: ""
+                    try {
+                        val file = File(filePath)
+                        if (!file.exists()) {
+                            result.error("FILE_NOT_FOUND", "File does not exist: $filePath", null)
+                            return@setMethodCallHandler
+                        }
+                        val extension = file.extension.lowercase()
+                        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+                        val contentUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = mimeType
+                            putExtra(Intent.EXTRA_STREAM, contentUri)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        }
+                        startActivity(Intent.createChooser(intent, file.name))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SHARE_FAILED", e.message, null)
                     }
                 }
                 else -> result.notImplemented()
