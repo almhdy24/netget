@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../core/segment_planner.dart';
 
@@ -52,8 +53,25 @@ class SegmentMapPainter extends CustomPainter {
       ..strokeWidth = 1.0;
   }
 
+  Picture? _cachedPicture;
+  Size? _cachedSize;
+
   @override
   void paint(Canvas canvas, Size size) {
+    if (_cachedPicture != null && _cachedSize == size) {
+      canvas.drawPicture(_cachedPicture!);
+      return;
+    }
+
+    final recorder = PictureRecorder();
+    final recordingCanvas = Canvas(recorder, Offset.zero & size);
+    _renderToCanvas(recordingCanvas, size);
+    _cachedPicture = recorder.endRecording();
+    _cachedSize = size;
+    canvas.drawPicture(_cachedPicture!);
+  }
+
+  void _renderToCanvas(Canvas canvas, Size size) {
     if (segments.isEmpty || totalBytes <= 0) {
       _paintSingleBar(canvas, size);
       return;
@@ -139,7 +157,24 @@ class SegmentMapPainter extends CustomPainter {
     }
     if (oldDelegate.segments.length != segments.length) return true;
     for (int i = 0; i < segments.length; i++) {
-      if (oldDelegate.segments[i] != segments[i]) return true;
+      final oldSeg = oldDelegate.segments[i];
+      final newSeg = segments[i];
+      if (oldSeg.isCompleted != newSeg.isCompleted ||
+          oldSeg.startByte != newSeg.startByte ||
+          oldSeg.endByte != newSeg.endByte) {
+        return true;
+      }
+      final totalSeg = newSeg.endByte > newSeg.startByte
+          ? (newSeg.endByte - newSeg.startByte + 1)
+          : 0;
+      if (totalSeg > 0) {
+        final diff = (newSeg.downloadedBytes - oldSeg.downloadedBytes).abs();
+        if (diff / totalSeg >= 0.01) {
+          return true;
+        }
+      } else if (oldSeg.downloadedBytes != newSeg.downloadedBytes) {
+        return true;
+      }
     }
     return false;
   }
