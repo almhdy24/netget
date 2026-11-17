@@ -59,6 +59,10 @@ class DownloadTask {
   final List<TaskLogEvent> eventLog; // up to 200 events ring buffer
   final int elapsedSeconds;
   final int rev;
+  final String? checksumExpected;
+  final String? checksumActual;
+  final String? checksumAlgorithm;
+  final String? pauseReason;
 
   const DownloadTask({
     required this.id,
@@ -84,6 +88,10 @@ class DownloadTask {
     this.eventLog = const [],
     this.elapsedSeconds = 0,
     this.rev = 0,
+    this.checksumExpected,
+    this.checksumActual,
+    this.checksumAlgorithm,
+    this.pauseReason,
   });
 
   /// Progress fraction from 0.0 to 1.0, or null if total size is unknown.
@@ -147,6 +155,14 @@ class DownloadTask {
     List<TaskLogEvent>? eventLog,
     int? elapsedSeconds,
     int? rev,
+    Object? checksumExpected = _sentinel,
+    bool clearChecksumExpected = false,
+    Object? checksumActual = _sentinel,
+    bool clearChecksumActual = false,
+    Object? checksumAlgorithm = _sentinel,
+    bool clearChecksumAlgorithm = false,
+    Object? pauseReason = _sentinel,
+    bool clearPauseReason = false,
   }) {
     final String? resolvedErrorMessage;
     if (clearError) {
@@ -199,6 +215,42 @@ class DownloadTask {
       resolvedReferrer = this.referrer;
     }
 
+    final String? resolvedChecksumExpected;
+    if (clearChecksumExpected) {
+      resolvedChecksumExpected = null;
+    } else if (!identical(checksumExpected, _sentinel)) {
+      resolvedChecksumExpected = checksumExpected as String?;
+    } else {
+      resolvedChecksumExpected = this.checksumExpected;
+    }
+
+    final String? resolvedChecksumActual;
+    if (clearChecksumActual) {
+      resolvedChecksumActual = null;
+    } else if (!identical(checksumActual, _sentinel)) {
+      resolvedChecksumActual = checksumActual as String?;
+    } else {
+      resolvedChecksumActual = this.checksumActual;
+    }
+
+    final String? resolvedChecksumAlgorithm;
+    if (clearChecksumAlgorithm) {
+      resolvedChecksumAlgorithm = null;
+    } else if (!identical(checksumAlgorithm, _sentinel)) {
+      resolvedChecksumAlgorithm = checksumAlgorithm as String?;
+    } else {
+      resolvedChecksumAlgorithm = this.checksumAlgorithm;
+    }
+
+    final String? resolvedPauseReason;
+    if (clearPauseReason) {
+      resolvedPauseReason = null;
+    } else if (!identical(pauseReason, _sentinel)) {
+      resolvedPauseReason = pauseReason as String?;
+    } else {
+      resolvedPauseReason = this.pauseReason;
+    }
+
     return DownloadTask(
       id: id ?? this.id,
       url: url ?? this.url,
@@ -223,6 +275,10 @@ class DownloadTask {
       eventLog: eventLog ?? this.eventLog,
       elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
       rev: rev ?? (this.rev + 1),
+      checksumExpected: resolvedChecksumExpected,
+      checksumActual: resolvedChecksumActual,
+      checksumAlgorithm: resolvedChecksumAlgorithm,
+      pauseReason: resolvedPauseReason,
     );
   }
 
@@ -249,6 +305,10 @@ class DownloadTask {
       'segments': segments.map((s) => s.toJson()).toList(),
       'elapsedSeconds': elapsedSeconds,
       'rev': rev,
+      'checksumExpected': checksumExpected,
+      'checksumActual': checksumActual,
+      'checksumAlgorithm': checksumAlgorithm,
+      'pauseReason': pauseReason,
     };
   }
 
@@ -303,6 +363,10 @@ class DownloadTask {
       segments: parsedSegments,
       elapsedSeconds: json['elapsedSeconds'] as int? ?? 0,
       rev: json['rev'] as int? ?? 0,
+      checksumExpected: json['checksumExpected'] as String?,
+      checksumActual: json['checksumActual'] as String?,
+      checksumAlgorithm: json['checksumAlgorithm'] as String?,
+      pauseReason: json['pauseReason'] as String?,
     );
   }
 
@@ -329,7 +393,11 @@ class DownloadTask {
         other.referrer == referrer &&
         other.queueName == queueName &&
         other.elapsedSeconds == elapsedSeconds &&
-        other.rev == rev;
+        other.rev == rev &&
+        other.checksumExpected == checksumExpected &&
+        other.checksumActual == checksumActual &&
+        other.checksumAlgorithm == checksumAlgorithm &&
+        other.pauseReason == pauseReason;
   }
 
   @override
@@ -342,5 +410,7 @@ class DownloadTask {
     etag,
     lastModified,
     rev,
+    checksumExpected,
+    pauseReason,
   );
 }
