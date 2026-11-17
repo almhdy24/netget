@@ -8,8 +8,8 @@ class TokenBucket {
   DateTime _lastRefill;
 
   TokenBucket({this.targetBytesPerSec = 0})
-      : _tokens = 0,
-        _lastRefill = DateTime.now();
+    : _tokens = 0,
+      _lastRefill = DateTime.now();
 
   bool get isUnlimited => targetBytesPerSec <= 0;
 

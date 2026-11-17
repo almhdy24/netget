@@ -13,6 +13,7 @@ import '../models/download_status.dart';
 import '../models/download_task.dart';
 import 'analytics_service.dart';
 import 'multi_connection_downloader.dart';
+import 'storage_service.dart';
 
 class _ActiveDownloadContext {
   HttpClientRequest? request;
@@ -89,6 +90,7 @@ class DownloadManager extends ChangeNotifier {
   final DownloadRepository _repository;
   final HttpClient Function()? _clientFactory;
   final Future<Directory> Function()? _downloadsDirResolver;
+  final StorageService _storageService;
   final bool autoResumeInterrupted;
 
   late final TaskStore _store;
@@ -296,10 +298,12 @@ class DownloadManager extends ChangeNotifier {
     required DownloadRepository repository,
     HttpClient Function()? clientFactory,
     Future<Directory> Function()? downloadsDirResolver,
+    StorageService? storageService,
     this.autoResumeInterrupted = true,
   }) : _repository = repository,
        _clientFactory = clientFactory,
-       _downloadsDirResolver = downloadsDirResolver {
+       _downloadsDirResolver = downloadsDirResolver,
+       _storageService = storageService ?? StorageService.instance {
     _store = TaskStore(
       onTasksChanged: notifyListeners,
       onTaskPersist: (task) => _repository.saveTask(task),
@@ -347,6 +351,9 @@ class DownloadManager extends ChangeNotifier {
   /// Changes the global speed mode
   void setSpeedMode(SpeedMode mode) {
     _speedMode = mode;
+    for (final ctx in _activeContexts.values) {
+      ctx.multiDownloader?.tokenBucket?.updateRate(mode.bytesPerSec);
+    }
     _invokeNative('setSpeedLimit', {'bytesPerSec': mode.bytesPerSec});
     notifyListeners();
     AnalyticsService.trackSettingChanged(
@@ -425,10 +432,7 @@ class DownloadManager extends ChangeNotifier {
     for (final task in interrupted) {
       _store.update(
         task.id,
-        (t) => t.copyWith(
-          status: DownloadStatus.queued,
-          speedBytesPerSec: 0.0,
-        ),
+        (t) => t.copyWith(status: DownloadStatus.queued, speedBytesPerSec: 0.0),
         notifyAggregate: true,
       );
       await resumeDownload(task.id);
@@ -570,12 +574,14 @@ class DownloadManager extends ChangeNotifier {
     final fileName = NetGetUtils.sanitizeFileName(rawName);
 
     final resolvedCategory = category ?? NetGetUtils.classifyCategory(fileName);
-    final folderName = subFolder ?? resolvedCategory.folderName;
 
-    final downloadsDir = _downloadsDirResolver != null
-        ? await _downloadsDirResolver()
-        : await NetGetConstants.getDownloadsDirectory(subFolder: folderName);
-    final savePath = await _resolveUniqueFilePath(downloadsDir.path, fileName);
+    final String savePath;
+    if (_downloadsDirResolver != null) {
+      final downloadsDir = await _downloadsDirResolver();
+      savePath = await _resolveUniqueFilePath(downloadsDir.path, fileName);
+    } else {
+      savePath = await _storageService.getPartFilePath(id);
+    }
 
     final connCount = connectionCount ?? defaultConnections;
     final isResumable = resumable ?? true;
@@ -631,65 +637,111 @@ class DownloadManager extends ChangeNotifier {
   }
 
   /// Refreshes expired link for a task after verifying compatibility.
-  Future<void> refreshTaskUrl(String taskId, String newUrl) async {
+  /// If file metadata mismatches and [forceRestartIfMismatch] is true, resets progress to byte 0.
+  Future<void> refreshTaskUrl(
+    String taskId,
+    String newUrl, {
+    bool forceRestartIfMismatch = false,
+  }) async {
     final current = _store.getById(taskId);
     if (current == null) {
       throw Exception('Task not found');
     }
     final analysis = await analyzeUrl(newUrl);
 
-    if (current.totalBytes > 0 &&
+    final sizeMismatch =
+        current.totalBytes > 0 &&
         analysis.totalBytes > 0 &&
-        current.totalBytes != analysis.totalBytes) {
-      throw Exception(
-        'Size mismatch: Existing file is ${NetGetUtils.formatBytes(current.totalBytes)}, '
-        'but new link is ${NetGetUtils.formatBytes(analysis.totalBytes)}.',
-      );
-    }
+        current.totalBytes != analysis.totalBytes;
 
-    // Strict ETag check if provided by both
-    if (current.etag != null &&
+    final etagMismatch =
+        current.etag != null &&
         analysis.etag != null &&
         current.etag!.isNotEmpty &&
         analysis.etag!.isNotEmpty &&
-        current.etag != analysis.etag) {
-      throw Exception(
-        'ETag mismatch: Existing file ETag is "${current.etag}", but new link returned "${analysis.etag}". '
-        'The remote file has changed and cannot be safely resumed.',
+        current.etag != analysis.etag;
+
+    if (sizeMismatch || etagMismatch) {
+      if (!forceRestartIfMismatch) {
+        if (sizeMismatch) {
+          throw Exception(
+            'Size mismatch: Existing file is ${NetGetUtils.formatBytes(current.totalBytes)}, '
+            'but new link is ${NetGetUtils.formatBytes(analysis.totalBytes)}.',
+          );
+        } else {
+          throw Exception(
+            'ETag mismatch: Existing file ETag is "${current.etag}", but new link returned "${analysis.etag}". '
+            'The remote file has changed and cannot be safely resumed.',
+          );
+        }
+      }
+      try {
+        final f = File(current.savePath);
+        if (await f.exists()) {
+          final raf = await f.open(mode: FileMode.write);
+          await raf.truncate(0);
+          await raf.close();
+        }
+      } catch (_) {}
+      _store.update(
+        taskId,
+        (t) => t.copyWith(
+          url: newUrl.trim(),
+          totalBytes: analysis.totalBytes > 0
+              ? analysis.totalBytes
+              : t.totalBytes,
+          downloadedBytes: 0,
+          segments: [],
+          etag: analysis.etag,
+          lastModified: analysis.lastModified,
+          clearPauseReason: true,
+          clearError: true,
+          status: DownloadStatus.queued,
+        ),
+        notifyAggregate: true,
+      );
+    } else {
+      // Strict Last-Modified check if provided by both
+      if (current.lastModified != null &&
+          analysis.lastModified != null &&
+          current.lastModified!.isNotEmpty &&
+          analysis.lastModified!.isNotEmpty &&
+          current.lastModified != analysis.lastModified) {
+        if (!forceRestartIfMismatch) {
+          throw Exception(
+            'Last-Modified mismatch: Existing file timestamp is "${current.lastModified}", '
+            'but new link returned "${analysis.lastModified}".',
+          );
+        }
+      }
+
+      // Verify resume support
+      if (current.resumable && !analysis.resumable && !forceRestartIfMismatch) {
+        throw Exception(
+          'Resume unsupported: The new link does not support HTTP Range requests for partial downloads.',
+        );
+      }
+
+      _store.update(
+        taskId,
+        (t) => t.copyWith(
+          url: newUrl.trim(),
+          totalBytes: analysis.totalBytes > 0
+              ? analysis.totalBytes
+              : t.totalBytes,
+          etag: analysis.etag ?? t.etag,
+          lastModified: analysis.lastModified ?? t.lastModified,
+          clearPauseReason: true,
+          clearError: true,
+          status: DownloadStatus.queued,
+        ),
+        notifyAggregate: true,
       );
     }
-
-    // Strict Last-Modified check if provided by both
-    if (current.lastModified != null &&
-        analysis.lastModified != null &&
-        current.lastModified!.isNotEmpty &&
-        analysis.lastModified!.isNotEmpty &&
-        current.lastModified != analysis.lastModified) {
-      throw Exception(
-        'Last-Modified mismatch: Existing file timestamp is "${current.lastModified}", '
-        'but new link returned "${analysis.lastModified}".',
-      );
-    }
-
-    // Verify resume support
-    if (current.resumable && !analysis.resumable) {
-      throw Exception(
-        'Resume unsupported: The new link does not support HTTP Range requests for partial downloads.',
-      );
-    }
-
-    _store.update(
-      taskId,
-      (t) => t.copyWith(
-        url: newUrl.trim(),
-        etag: analysis.etag ?? t.etag,
-        lastModified: analysis.lastModified ?? t.lastModified,
-      ),
-      notifyAggregate: true,
-    );
 
     logEvent(taskId, 'INFO', 'Download URL refreshed: $newUrl');
     await saveImmediate();
+    _processQueue();
   }
 
   /// Restarts download from scratch (deletes partial file).
@@ -1215,518 +1267,197 @@ class DownloadManager extends ChangeNotifier {
 
       final uri = Uri.parse(currentTask.url);
 
-      // Multi-connection engine path: used when connectionCount > 1 and server supports ranges
-      if (currentTask.connectionCount > 1) {
-        final multiDownloader = MultiConnectionDownloader(
-          id: taskId,
-          uri: uri,
-          savePath: currentTask.savePath,
-          connectionCount: currentTask.connectionCount,
-          etag: currentTask.etag,
-          lastModified: currentTask.lastModified,
-          initialSegments: currentTask.segments,
-          clientFactory: () => _createHttpClient(),
-          onProgress: (downloaded, total, speed, segs) {
-            emitProgressTick(
-              taskId,
-              downloadedBytes: downloaded,
-              totalBytes: total,
-              speedBytesPerSec: speed,
-              segments: segs,
-            );
-          },
-          onCheckpoint: (segs) async {
-            final flushedBytes = segs.fold<int>(
-              0,
-              (sum, s) => sum + s.downloadedBytes,
-            );
-            _store.update(
-              taskId,
-              (t) => t.copyWith(segments: segs, downloadedBytes: flushedBytes),
-            );
-            scheduleThrottledSave();
-          },
-          onLog: (lvl, msg) {
-            logEvent(taskId, lvl, msg);
-          },
-        );
-
-        ctx.multiDownloader = multiDownloader;
-
-        bool shouldUseMulti = false;
-        try {
-          final probe = await multiDownloader.probeServer();
-          if (ctx.isPaused || ctx.isCancelled) {
-            _activeContexts.remove(taskId);
-            client.close(force: true);
-            return;
-          }
-          if (probe.isRangeSupported && probe.totalBytes > 256 * 1024) {
-            shouldUseMulti = true;
-            _store.update(
-              taskId,
-              (t) => t.copyWith(
-                totalBytes: probe.totalBytes,
-                etag: probe.etag ?? t.etag,
-                lastModified: probe.lastModified ?? t.lastModified,
-                resumable: true,
-              ),
-            );
-          }
-        } catch (e) {
-          if (e is HttpException && e.message.contains('Server file changed')) {
-            logEvent(
-              taskId,
-              'WARN',
-              'Server ETag changed after restart: $e. Discarding partial file and restarting from 0.',
-            );
-            try {
-              final raf = await file.open(mode: FileMode.write);
-              await raf.truncate(0);
-              await raf.close();
-            } catch (_) {}
-            _store.update(
-              taskId,
-              (t) =>
-                  t.copyWith(downloadedBytes: 0, clearEtag: true, segments: []),
-            );
-            await saveImmediate();
-            _activeContexts.remove(taskId);
-            client.close(force: true);
-            unawaited(_startDownloading(taskId));
-            return;
-          }
-          logEvent(
+      // Unified engine: all downloads route through MultiConnectionDownloader
+      final multiDownloader = MultiConnectionDownloader(
+        id: taskId,
+        uri: uri,
+        savePath: currentTask.savePath,
+        connectionCount: currentTask.connectionCount,
+        speedLimitBytesPerSec: _speedMode.bytesPerSec,
+        etag: currentTask.etag,
+        lastModified: currentTask.lastModified,
+        initialSegments: currentTask.segments,
+        clientFactory: () => _createHttpClient(),
+        onProgress: (downloaded, total, speed, segs) {
+          emitProgressTick(
             taskId,
-            'WARN',
-            'Multi-connection probe: $e; falling back to single stream',
+            downloadedBytes: downloaded,
+            totalBytes: total,
+            speedBytesPerSec: speed,
+            segments: segs,
           );
-        }
-
-        if (shouldUseMulti) {
-          try {
-            await multiDownloader.start();
-            if (ctx.isPaused ||
-                ctx.isCancelled ||
-                multiDownloader.isPaused ||
-                multiDownloader.isCancelled) {
-              _activeContexts.remove(taskId);
-              client.close(force: true);
-              return;
-            }
-
-            final currentDownloading = _store.getById(taskId);
-            if (currentDownloading != null &&
-                currentDownloading.status == DownloadStatus.downloading) {
-              final completedTask = _store.update(
-                taskId,
-                (t) => t.copyWith(
-                  status: DownloadStatus.completed,
-                  downloadedBytes: multiDownloader.totalBytes > 0
-                      ? multiDownloader.totalBytes
-                      : t.downloadedBytes,
-                  totalBytes: multiDownloader.totalBytes > 0
-                      ? multiDownloader.totalBytes
-                      : t.totalBytes,
-                  speedBytesPerSec: 0.0,
-                  completedAt: DateTime.now(),
-                  segments: multiDownloader.segments,
-                ),
-                notifyAggregate: true,
-              )!;
-              logEvent(taskId, 'INFO', 'Download completed successfully!');
-              final durationSec = completedTask.completedAt != null
-                  ? completedTask.completedAt!
-                        .difference(completedTask.createdAt)
-                        .inSeconds
-                  : 0;
-              final avgSpeed = durationSec > 0
-                  ? (completedTask.downloadedBytes / durationSec).round()
-                  : 0;
-              AnalyticsService.trackDownloadCompleted(
-                totalBytes: completedTask.downloadedBytes,
-                durationSeconds: durationSec,
-                avgSpeedBytesPerSec: avgSpeed,
-                category: completedTask.category.name,
-              );
-              await saveImmediate();
-              unawaited(
-                _invokeNative('notifyDownloadCompleted', {
-                  'taskId': taskId,
-                  'fileName': completedTask.fileName,
-                  'savePath': completedTask.savePath,
-                }),
-              );
-            }
-            _activeContexts.remove(taskId);
-            client.close(force: true);
-            _processQueue();
-            return;
-          } catch (e) {
-            if (ctx.isPaused || ctx.isCancelled) {
-              _activeContexts.remove(taskId);
-              client.close(force: true);
-              return;
-            }
-            if (e is DiskSpaceException ||
-                (e is FileSystemException &&
-                    (e.message.contains('Insufficient disk space') ||
-                        e.osError?.errorCode == 28 ||
-                        e.message.toLowerCase().contains('no space')))) {
-              _store.update(
-                taskId,
-                (t) => t.copyWith(
-                  status: DownloadStatus.failed,
-                  errorMessage:
-                      'Disk is full. Please free up storage space to resume download.',
-                  speedBytesPerSec: 0.0,
-                ),
-                notifyAggregate: true,
-              );
-              logEvent(taskId, 'ERROR', 'Disk full: $e');
-              AnalyticsService.trackDownloadFailed(errorType: 'storage_full');
-              await saveImmediate();
-              _activeContexts.remove(taskId);
-              client.close(force: true);
-              _processQueue();
-              return;
-            }
-            if (e is HttpException &&
-                e.message.contains('Server file changed')) {
-              logEvent(
-                taskId,
-                'WARN',
-                'Server ETag changed mid-download: $e. Discarding partial file and restarting from 0.',
-              );
-              try {
-                final raf = await file.open(mode: FileMode.write);
-                await raf.truncate(0);
-                await raf.close();
-              } catch (_) {}
-              _store.update(
-                taskId,
-                (t) => t.copyWith(
-                  downloadedBytes: 0,
-                  clearEtag: true,
-                  segments: [],
-                ),
-              );
-              await saveImmediate();
-              _activeContexts.remove(taskId);
-              client.close(force: true);
-              unawaited(_startDownloading(taskId));
-              return;
-            }
-            logEvent(
-              taskId,
-              'WARN',
-              'Multi-connection download failed: $e; falling back to single stream',
-            );
-          }
-        }
-      }
-
-      // Single stream fallback for multi-connection tasks:
-      // If the file was preallocated with holes, single-stream cannot safely append to existingBytes.
-      if (currentTask.connectionCount > 1 && existingBytes > 0) {
-        logEvent(
-          taskId,
-          'WARN',
-          'Single stream fallback for multi-connection task requires fresh restart from byte 0.',
-        );
-        try {
-          final raf = await file.open(mode: FileMode.write);
-          await raf.truncate(0);
-          await raf.close();
-        } catch (_) {}
-        existingBytes = 0;
-      }
-
-      final request = await client.getUrl(uri);
-      ctx.request = request;
-
-      request.headers.set(
-        HttpHeaders.userAgentHeader,
-        NetGetConstants.userAgent,
+        },
+        onCheckpoint: (segs) async {
+          final flushedBytes = segs.fold<int>(
+            0,
+            (sum, s) => sum + s.downloadedBytes,
+          );
+          _store.update(
+            taskId,
+            (t) => t.copyWith(segments: segs, downloadedBytes: flushedBytes),
+          );
+          scheduleThrottledSave();
+        },
+        onLog: (lvl, msg) {
+          logEvent(taskId, lvl, msg);
+        },
       );
-      request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-      if (currentTask.referrer != null) {
-        request.headers.set(HttpHeaders.refererHeader, currentTask.referrer!);
-      }
 
-      final shouldRange = existingBytes > 0 && currentTask.resumable;
-      if (shouldRange) {
-        String? ifRangeValidator;
-        if (NetGetUtils.isStrongEtag(currentTask.etag)) {
-          ifRangeValidator = currentTask.etag;
-        } else if (currentTask.lastModified != null &&
-            currentTask.lastModified!.trim().isNotEmpty) {
-          ifRangeValidator = currentTask.lastModified;
-        }
+      ctx.multiDownloader = multiDownloader;
 
-        if (ifRangeValidator != null) {
-          request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingBytes-');
-          request.headers.set(HttpHeaders.ifRangeHeader, ifRangeValidator);
-        } else {
-          existingBytes = 0;
-          try {
-            final raf = await file.open(mode: FileMode.write);
-            await raf.truncate(0);
-            await raf.close();
-          } catch (_) {}
-        }
-      }
-
-      final response = await request.close();
-
-      if (ctx.isPaused || ctx.isCancelled) {
+      await multiDownloader.start();
+      if (ctx.isPaused ||
+          ctx.isCancelled ||
+          multiDownloader.isPaused ||
+          multiDownloader.isCancelled) {
+        _activeContexts.remove(taskId);
         client.close(force: true);
         return;
       }
 
-      final statusCode = response.statusCode;
-      if (statusCode >= 400) {
-        throw HttpException(
-          'HTTP $statusCode: ${response.reasonPhrase}',
-          uri: uri,
-        );
-      }
+      final currentDownloading = _store.getById(taskId);
+      if (currentDownloading != null &&
+          currentDownloading.status == DownloadStatus.downloading) {
+        String finalSavePath = currentDownloading.savePath;
 
-      bool isAppend = false;
-      int totalBytes = currentTask.totalBytes;
-      bool resumable = currentTask.resumable;
-
-      if (statusCode == HttpStatus.partialContent) {
-        final contentRange = response.headers.value(
-          HttpHeaders.contentRangeHeader,
-        );
-        if (contentRange != null && contentRange.startsWith('bytes ')) {
-          final rangePart = contentRange.substring(6).split('/')[0].trim();
-          final rangeParts = rangePart.split('-');
-          if (rangeParts.isNotEmpty) {
-            final actualStart = int.tryParse(rangeParts[0]);
-            if (actualStart != null && actualStart != existingBytes) {
-              await response.drain<void>();
-              throw HttpException(
-                'Server returned unexpected Content-Range start: $actualStart != requested $existingBytes',
-                uri: uri,
-              );
-            }
+        // If the download was saved to a .part file, finalize it to public location
+        if (finalSavePath.endsWith('.part')) {
+          try {
+            final targetDir = await _storageService.getPublicDownloadDirectory(
+              category: currentDownloading.category,
+            );
+            final targetPath = await _storageService.resolveTargetFilePath(
+              fileName:
+                  multiDownloader.suggestedFileName ??
+                  currentDownloading.fileName,
+              category: currentDownloading.category,
+              customFolderPath: targetDir.path,
+            );
+            finalSavePath = await _storageService.finalizeDownload(
+              partFilePath: currentDownloading.savePath,
+              targetFilePath: targetPath,
+              expectedBytes: multiDownloader.totalBytes > 0
+                  ? multiDownloader.totalBytes
+                  : currentDownloading.downloadedBytes,
+            );
+          } catch (e) {
+            logEvent(
+              taskId,
+              'WARN',
+              'Finalization to public directory fallback: $e',
+            );
           }
         }
-        isAppend = true;
-        resumable = true;
-        final len = response.contentLength;
-        if (len > 0) {
-          totalBytes = existingBytes + len;
-        }
-        logEvent(
+
+        final updatedFileName =
+            multiDownloader.suggestedFileName ?? currentDownloading.fileName;
+
+        final completedTask = _store.update(
           taskId,
-          'INFO',
-          'Resuming from offset ${NetGetUtils.formatBytes(existingBytes)}',
-        );
-      } else if (statusCode == HttpStatus.ok) {
-        isAppend = false;
-        existingBytes = 0;
-        final acceptRanges = response.headers.value(
-          HttpHeaders.acceptRangesHeader,
-        );
-        resumable = acceptRanges?.toLowerCase() == 'bytes';
-        totalBytes = response.contentLength;
-        logEvent(
-          taskId,
-          'INFO',
-          'Server returned 200 OK (total: ${NetGetUtils.formatBytes(totalBytes)})',
-        );
-      }
-
-      final contentDisposition = response.headers.value('content-disposition');
-      String updatedFileName = currentTask.fileName;
-      if (contentDisposition != null) {
-        final parsedName = NetGetUtils.parseContentDisposition(
-          contentDisposition,
-        );
-        if (parsedName != null && parsedName.isNotEmpty) {
-          updatedFileName = NetGetUtils.sanitizeFileName(parsedName);
-        }
-      }
-
-      final newEtag =
-          response.headers.value(HttpHeaders.etagHeader) ?? currentTask.etag;
-      final newLastModified =
-          response.headers.value(HttpHeaders.lastModifiedHeader) ??
-          currentTask.lastModified;
-
-      // Update segment tracking
-      var segments = List<DownloadSegment>.from(currentTask.segments);
-      if (segments.isEmpty || segments.first.endByte < 0) {
-        segments = List<DownloadSegment>.from(
-          SegmentPlanner.planInitialSegments(
-            totalBytes: totalBytes,
-            connectionCount: currentTask.connectionCount,
-            resumable: resumable,
+          (t) => t.copyWith(
+            status: DownloadStatus.completed,
+            fileName: updatedFileName,
+            savePath: finalSavePath,
+            downloadedBytes: multiDownloader.totalBytes > 0
+                ? multiDownloader.totalBytes
+                : t.downloadedBytes,
+            totalBytes: multiDownloader.totalBytes > 0
+                ? multiDownloader.totalBytes
+                : t.totalBytes,
+            etag: multiDownloader.etag ?? t.etag,
+            lastModified: multiDownloader.lastModified ?? t.lastModified,
+            resumable: multiDownloader.isRangeSupported,
+            speedBytesPerSec: 0.0,
+            completedAt: DateTime.now(),
+            segments: multiDownloader.segments,
           ),
+          notifyAggregate: true,
+        )!;
+        logEvent(taskId, 'INFO', 'Download completed successfully!');
+        final durationSec = completedTask.completedAt != null
+            ? completedTask.completedAt!
+                  .difference(completedTask.createdAt)
+                  .inSeconds
+            : 0;
+        final avgSpeed = durationSec > 0
+            ? (completedTask.downloadedBytes / durationSec).round()
+            : 0;
+        AnalyticsService.trackDownloadCompleted(
+          totalBytes: completedTask.downloadedBytes,
+          durationSeconds: durationSec,
+          avgSpeedBytesPerSec: avgSpeed,
+          category: completedTask.category.name,
+        );
+        await saveImmediate();
+        unawaited(
+          _invokeNative('notifyDownloadCompleted', {
+            'taskId': taskId,
+            'fileName': completedTask.fileName,
+            'savePath': completedTask.savePath,
+          }),
         );
       }
-
-      var downloadedBytes = existingBytes;
-
-      _store.update(
-        taskId,
-        (t) => t.copyWith(
-          fileName: updatedFileName,
-          totalBytes: totalBytes,
-          downloadedBytes: downloadedBytes,
-          resumable: resumable,
-          etag: newEtag,
-          lastModified: newLastModified,
-          segments: segments,
-        ),
-        notifyAggregate: true,
-      );
-
-      final sink = file.openWrite(
-        mode: isAppend ? FileMode.append : FileMode.write,
-      );
-      ctx.sink = sink;
-
-      final stopwatch = Stopwatch()..start();
-      int bytesSinceLastTick = 0;
-      DateTime lastEmitTime = DateTime.now();
-
-      final subscription = response.listen(
-        (chunk) {
-          sink.add(chunk);
-          downloadedBytes += chunk.length;
-          bytesSinceLastTick += chunk.length;
-
-          // Update active segment
-          if (segments.isNotEmpty) {
-            segments[0] = segments.first.copyWith(
-              downloadedBytes: downloadedBytes,
-            );
-          }
-
-          final now = DateTime.now();
-          final elapsedMs = now.difference(lastEmitTime).inMilliseconds;
-          if (elapsedMs >= 250) {
-            final elapsedSec = stopwatch.elapsedMicroseconds / 1000000.0;
-            final speed = elapsedSec > 0
-                ? (bytesSinceLastTick / elapsedSec)
-                : 0.0;
-
-            stopwatch.reset();
-            bytesSinceLastTick = 0;
-            lastEmitTime = now;
-
-            emitProgressTick(
-              taskId,
-              downloadedBytes: downloadedBytes,
-              speedBytesPerSec: speed,
-              segments: segments,
-            );
-          }
-        },
-        onError: (Object error) async {
-          await sink.flush();
-          await sink.close();
-          client?.close(force: true);
-          _activeContexts.remove(taskId);
-
-          final currentT = _store.getById(taskId);
-          if (currentT != null &&
-              !currentT.status.isPaused &&
-              !currentT.status.isCancelled) {
-            final failureCode = DownloadFailureMapper.mapException(error);
-            final cleanMsg = failureCode.localizedMessage();
-            final failedTask = _store.update(
-              taskId,
-              (t) => t.copyWith(
-                status: DownloadStatus.failed,
-                errorMessage: cleanMsg,
-                speedBytesPerSec: 0.0,
-                downloadedBytes: downloadedBytes,
-              ),
-              notifyAggregate: true,
-            )!;
-            logEvent(taskId, 'ERROR', 'Error ($failureCode): $error');
-            AnalyticsService.trackDownloadFailed(
-              errorType: failureCode.name,
-              httpStatus: failureCode == DownloadFailureCode.http403
-                  ? 403
-                  : (failureCode == DownloadFailureCode.http404 ? 404 : null),
-            );
-            await saveImmediate();
-            unawaited(
-              _invokeNative('notifyDownloadFailed', {
-                'taskId': taskId,
-                'fileName': failedTask.fileName,
-                'errorMessage': cleanMsg,
-              }),
-            );
-            if (failureCode == DownloadFailureCode.noConnection) {
-              _scheduleNetworkRetry(taskId);
-            }
-          }
-          _processQueue();
-        },
-        onDone: () async {
-          await sink.flush();
-          await sink.close();
-          client?.close(force: true);
-          _activeContexts.remove(taskId);
-
-          final currentT = _store.getById(taskId);
-          if (currentT != null &&
-              currentT.status == DownloadStatus.downloading) {
-            if (segments.isNotEmpty) {
-              segments[0] = segments.first.copyWith(isCompleted: true);
-            }
-            final completedTask = _store.update(
-              taskId,
-              (t) => t.copyWith(
-                status: DownloadStatus.completed,
-                downloadedBytes: downloadedBytes,
-                totalBytes: totalBytes > 0 ? totalBytes : downloadedBytes,
-                speedBytesPerSec: 0.0,
-                completedAt: DateTime.now(),
-                segments: segments,
-              ),
-              notifyAggregate: true,
-            )!;
-            logEvent(taskId, 'INFO', 'Download completed successfully!');
-            final durationSec = completedTask.completedAt != null
-                ? completedTask.completedAt!
-                      .difference(completedTask.createdAt)
-                      .inSeconds
-                : 0;
-            final avgSpeed = durationSec > 0
-                ? (completedTask.downloadedBytes / durationSec).round()
-                : 0;
-            AnalyticsService.trackDownloadCompleted(
-              totalBytes: completedTask.downloadedBytes,
-              durationSeconds: durationSec,
-              avgSpeedBytesPerSec: avgSpeed,
-              category: completedTask.category.name,
-            );
-            await saveImmediate();
-            unawaited(
-              _invokeNative('notifyDownloadCompleted', {
-                'taskId': taskId,
-                'fileName': completedTask.fileName,
-                'savePath': completedTask.savePath,
-              }),
-            );
-          }
-          _processQueue();
-        },
-        cancelOnError: true,
-      );
-
-      ctx.subscription = subscription;
-    } catch (e) {
-      client?.close(force: true);
       _activeContexts.remove(taskId);
+      client.close(force: true);
+      _processQueue();
+      return;
+    } catch (e) {
+      _activeContexts.remove(taskId);
+      client?.close(force: true);
+
+      if (ctx.isPaused || ctx.isCancelled) {
+        return;
+      }
+
+      if (e is DiskSpaceException ||
+          (e is FileSystemException &&
+              (e.message.contains('Insufficient disk space') ||
+                  e.message.contains('No space left on device') ||
+                  e.osError?.errorCode == 28 ||
+                  e.message.toLowerCase().contains('no space')))) {
+        _store.update(
+          taskId,
+          (t) => t.copyWith(
+            status: DownloadStatus.paused,
+            pauseReason: 'storage',
+            errorMessage:
+                'Disk is full. Please free up storage space to resume download.',
+            speedBytesPerSec: 0.0,
+          ),
+          notifyAggregate: true,
+        );
+        logEvent(taskId, 'ERROR', 'Disk full: $e');
+        AnalyticsService.trackDownloadFailed(errorType: 'storage_full');
+        await saveImmediate();
+        _processQueue();
+        return;
+      }
+
+      if (e is HttpException &&
+          (e.message.contains('401') ||
+              e.message.contains('403') ||
+              e.message.contains('410'))) {
+        _store.update(
+          taskId,
+          (t) => t.copyWith(
+            status: DownloadStatus.paused,
+            pauseReason: 'urlExpired',
+            errorMessage: 'Link expired. Please refresh the download link.',
+            speedBytesPerSec: 0.0,
+          ),
+          notifyAggregate: true,
+        );
+        logEvent(taskId, 'WARN', 'Download URL expired: $e');
+        AnalyticsService.trackDownloadFailed(
+          errorType: 'url_expired',
+          httpStatus: e.message.contains('401')
+              ? 401
+              : (e.message.contains('403') ? 403 : 410),
+        );
+        await saveImmediate();
+        _processQueue();
+        return;
+      }
 
       final currentT = _store.getById(taskId);
       if (currentT != null &&

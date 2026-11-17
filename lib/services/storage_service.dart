@@ -11,6 +11,10 @@ import '../core/utils.dart';
 /// Stage 2 (Finalize): On completion, verified and moved to public `Downloads/NetGet/<Category>/`
 /// or user-selected custom folder via SAF/MediaStore.
 class StorageService {
+  static StorageService? _instance;
+  static StorageService get instance => _instance ??= StorageService();
+  static set instance(StorageService s) => _instance = s;
+
   static const MethodChannel _platform = MethodChannel(
     'com.elmahdi.netget/engine',
   );

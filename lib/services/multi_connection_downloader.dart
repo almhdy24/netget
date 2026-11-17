@@ -279,6 +279,7 @@ class MultiConnectionDownloader {
   int totalBytes = -1;
   String? etag;
   String? lastModified;
+  String? suggestedFileName;
   bool isRangeSupported = false;
 
   MultiConnectionDownloader({
@@ -433,6 +434,14 @@ class MultiConnectionDownloader {
         final serverLastModified = response.headers.value(
           HttpHeaders.lastModifiedHeader,
         );
+        final contentDisp = response.headers.value('content-disposition');
+        String? parsedFileName;
+        if (contentDisp != null) {
+          final parsed = NetGetUtils.parseContentDisposition(contentDisp);
+          if (parsed != null && parsed.isNotEmpty) {
+            parsedFileName = NetGetUtils.sanitizeFileName(parsed);
+          }
+        }
 
         // Drain probe response body
         await response.drain<void>();
@@ -442,9 +451,18 @@ class MultiConnectionDownloader {
           totalBytes: length,
           etag: serverEtag,
           lastModified: serverLastModified,
+          suggestedFileName: parsedFileName,
         );
       } catch (e) {
         if (_isPaused || _isCancelled) {
+          return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
+        }
+        if (e is HttpException &&
+            (e.message.contains('405') || e.message.contains('501'))) {
+          _log(
+            'WARN',
+            'Probe returned HTTP 405/501, falling back to standard stream',
+          );
           return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
         }
         rethrow;
@@ -486,6 +504,9 @@ class MultiConnectionDownloader {
         totalBytes = probe.totalBytes;
         etag = probe.etag ?? etag;
         lastModified = probe.lastModified ?? lastModified;
+        if (probe.suggestedFileName != null) {
+          suggestedFileName = probe.suggestedFileName;
+        }
         _log(
           'INFO',
           'Server Range: ${isRangeSupported ? "Supported" : "Unsupported"}, Size: $totalBytes',
@@ -632,6 +653,9 @@ class MultiConnectionDownloader {
       await Future.wait(workerFutures);
       checkpointTimer.cancel();
       await checkpoint();
+      if (totalBytes <= 0) {
+        totalBytes = segments.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+      }
     } on _ServerResetToZeroException catch (resetEx) {
       checkpointTimer?.cancel();
       _log('INFO', '${resetEx.message}; restarting cleanly from byte 0');
@@ -854,8 +878,12 @@ class MultiConnectionDownloader {
         }
 
         final finalSeg = segments[segIdx];
-        if (finalSeg.remainingBytes <= 0 && finalSeg.endByte >= 0) {
+        if ((finalSeg.remainingBytes <= 0 && finalSeg.endByte >= 0) ||
+            finalSeg.endByte < 0) {
           segments[segIdx] = finalSeg.copyWith(isCompleted: true);
+          if (totalBytes <= 0) {
+            totalBytes = segments[segIdx].downloadedBytes;
+          }
 
           // Dynamic work-stealing: when connection finishes while another segment has > 2 MB remaining
           if (canMultiConnect && !_isPaused && !_isCancelled) {
