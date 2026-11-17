@@ -12,6 +12,8 @@ class AppSettings {
   final bool wifiOnly;
   final bool soundsEnabled;
   final String? defaultFolder;
+  final bool autoResumeInterrupted;
+  final bool autoResumeOnBoot;
 
   const AppSettings({
     this.themeMode = ThemeMode.system,
@@ -24,6 +26,8 @@ class AppSettings {
     this.wifiOnly = false,
     this.soundsEnabled = true,
     this.defaultFolder,
+    this.autoResumeInterrupted = true,
+    this.autoResumeOnBoot = false,
   });
 
   AppSettings copyWith({
@@ -37,6 +41,8 @@ class AppSettings {
     bool? wifiOnly,
     bool? soundsEnabled,
     String? defaultFolder,
+    bool? autoResumeInterrupted,
+    bool? autoResumeOnBoot,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -50,6 +56,9 @@ class AppSettings {
       wifiOnly: wifiOnly ?? this.wifiOnly,
       soundsEnabled: soundsEnabled ?? this.soundsEnabled,
       defaultFolder: defaultFolder ?? this.defaultFolder,
+      autoResumeInterrupted:
+          autoResumeInterrupted ?? this.autoResumeInterrupted,
+      autoResumeOnBoot: autoResumeOnBoot ?? this.autoResumeOnBoot,
     );
   }
 
@@ -64,6 +73,8 @@ class AppSettings {
     'wifiOnly': wifiOnly,
     'soundsEnabled': soundsEnabled,
     'defaultFolder': defaultFolder,
+    'autoResumeInterrupted': autoResumeInterrupted,
+    'autoResumeOnBoot': autoResumeOnBoot,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -100,6 +111,8 @@ class AppSettings {
       wifiOnly: json['wifiOnly'] as bool? ?? false,
       soundsEnabled: json['soundsEnabled'] as bool? ?? true,
       defaultFolder: json['defaultFolder'] as String?,
+      autoResumeInterrupted: json['autoResumeInterrupted'] as bool? ?? true,
+      autoResumeOnBoot: json['autoResumeOnBoot'] as bool? ?? false,
     );
   }
 }

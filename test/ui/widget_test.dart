@@ -168,6 +168,7 @@ void main() {
       // Retry download
       await manager.retryDownload('failed_1');
       await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
 
       // Verify error is now completely gone from UI
       expect(find.text('Connection timed out'), findsNothing);

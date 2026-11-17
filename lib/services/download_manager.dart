@@ -89,6 +89,7 @@ class DownloadManager extends ChangeNotifier {
   final DownloadRepository _repository;
   final HttpClient Function()? _clientFactory;
   final Future<Directory> Function()? _downloadsDirResolver;
+  final bool autoResumeInterrupted;
 
   late final TaskStore _store;
   final Map<String, _ActiveDownloadContext> _activeContexts = {};
@@ -295,6 +296,7 @@ class DownloadManager extends ChangeNotifier {
     required DownloadRepository repository,
     HttpClient Function()? clientFactory,
     Future<Directory> Function()? downloadsDirResolver,
+    this.autoResumeInterrupted = true,
   }) : _repository = repository,
        _clientFactory = clientFactory,
        _downloadsDirResolver = downloadsDirResolver {
@@ -413,6 +415,24 @@ class DownloadManager extends ChangeNotifier {
     _startSchedulerTimer();
     _initNativeBridge();
     notifyListeners();
+  }
+
+  /// Automatically re-queues and resumes tasks that were interrupted (in downloading state when process terminated).
+  Future<void> resumeInterruptedTasks() async {
+    final interrupted = tasks
+        .where((t) => t.status == DownloadStatus.downloading)
+        .toList();
+    for (final task in interrupted) {
+      _store.update(
+        task.id,
+        (t) => t.copyWith(
+          status: DownloadStatus.queued,
+          speedBytesPerSec: 0.0,
+        ),
+        notifyAggregate: true,
+      );
+      await resumeDownload(task.id);
+    }
   }
 
   void _initNativeBridge() {

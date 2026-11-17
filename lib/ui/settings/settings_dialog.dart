@@ -1,8 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants.dart';
 import '../../data/settings_repository.dart';
 import '../../models/app_settings.dart';
 import '../../services/analytics_service.dart';
+import 'keep_alive_screen.dart';
 
 /// Desktop-style Preferences / Settings dialog.
 class SettingsDialog extends StatefulWidget {
@@ -165,6 +168,103 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         );
                       },
                     ),
+                    SwitchListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        isArabic
+                            ? 'استئناف التحميلات المنقطعة تلقائياً'
+                            : 'Auto-resume interrupted downloads',
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                      subtitle: Text(
+                        isArabic
+                            ? 'إعادة جدولة التحميلات غير المكتملة تلقائياً عند إعادة فتح التطبيق'
+                            : 'Automatically resume incomplete tasks when reopening the app',
+                        style: const TextStyle(fontSize: 10.5),
+                      ),
+                      value: _settings.autoResumeInterrupted,
+                      onChanged: (val) {
+                        _updateSettings(
+                          _settings.copyWith(autoResumeInterrupted: val),
+                        );
+                        AnalyticsService.trackSettingChanged(
+                          settingName: 'auto_resume_interrupted',
+                          settingValue: '$val',
+                        );
+                      },
+                    ),
+                    if (Platform.isAndroid) ...[
+                      SwitchListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          isArabic
+                              ? 'استئناف التحميل عند تشغيل الهاتف'
+                              : 'Auto-resume on phone boot',
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                        subtitle: Text(
+                          isArabic
+                              ? 'بدء خدمة التحميل في الخلفية بعد إعادة تشغيل الجهاز'
+                              : 'Start background download service after system reboot',
+                          style: const TextStyle(fontSize: 10.5),
+                        ),
+                        value: _settings.autoResumeOnBoot,
+                        onChanged: (val) async {
+                          await _updateSettings(
+                            _settings.copyWith(autoResumeOnBoot: val),
+                          );
+                          AnalyticsService.trackSettingChanged(
+                            settingName: 'auto_resume_on_boot',
+                            settingValue: '$val',
+                          );
+                          try {
+                            const platform = MethodChannel(
+                              'com.elmahdi.netget/engine',
+                            );
+                            await platform.invokeMethod('setAutoResumeOnBoot', {
+                              'enabled': val,
+                            });
+                          } catch (_) {}
+                        },
+                      ),
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(
+                          Icons.bolt,
+                          color: Colors.amber,
+                          size: 20,
+                        ),
+                        title: Text(
+                          isArabic
+                              ? 'إبقاء التحميلات نشطة'
+                              : 'Keep downloads alive',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: Text(
+                          isArabic
+                              ? 'حماية التحميلات من إيقاف النظام في الخلفية'
+                              : 'Protect downloads from aggressive OEM battery killers',
+                          style: const TextStyle(fontSize: 10.5),
+                        ),
+                        trailing: Icon(
+                          isArabic ? Icons.chevron_left : Icons.chevron_right,
+                          size: 18,
+                        ),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const KeepAliveScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
 
                     const Divider(height: 20),
 

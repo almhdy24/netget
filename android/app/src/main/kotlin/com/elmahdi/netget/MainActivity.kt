@@ -6,9 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
@@ -17,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -34,6 +37,17 @@ class MainActivity : FlutterActivity() {
     private var eventSink: EventChannel.EventSink? = null
     private var pendingIntentUrl: String? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+
+    override fun shouldDestroyEngineWithHost(): Boolean = false
+
+    override fun provideFlutterEngine(context: Context): FlutterEngine? {
+        var engine = FlutterEngineCache.getInstance().get(DownloadService.CACHED_ENGINE_ID)
+        if (engine == null) {
+            engine = FlutterEngine(context)
+            FlutterEngineCache.getInstance().put(DownloadService.CACHED_ENGINE_ID, engine)
+        }
+        return engine
+    }
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
@@ -92,38 +106,13 @@ class MainActivity : FlutterActivity() {
         // MethodChannel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "startDownload" -> {
-                    val service = downloadService
-                    if (service == null) {
-                        result.error("SERVICE_UNBOUND", "Download service is not yet connected", null)
-                        return@setMethodCallHandler
-                    }
-                    val id = call.argument<String>("id") ?: ""
-                    val url = call.argument<String>("url") ?: ""
-                    val fileName = call.argument<String>("fileName") ?: ""
-                    val savePath = call.argument<String>("savePath") ?: ""
-                    val totalBytes = (call.argument<Number>("totalBytes") ?: -1).toLong()
-                    val connections = call.argument<Int>("connections") ?: 1
-                    val category = call.argument<String>("category") ?: "other"
-                    val etag = call.argument<String>("etag")
-                    val lastModified = call.argument<String>("lastModified")
-
-                    service.startDownload(id, url, fileName, savePath, totalBytes, connections, category, etag, lastModified)
+                "startDownload", "pauseDownload", "resumeDownload", "cancelDownload" -> {
                     result.success(true)
                 }
-                "pauseDownload" -> {
-                    val id = call.argument<String>("id") ?: ""
-                    downloadService?.pauseDownload(id)
-                    result.success(true)
-                }
-                "resumeDownload" -> {
-                    val id = call.argument<String>("id") ?: ""
-                    downloadService?.resumeDownload(id)
-                    result.success(true)
-                }
-                "cancelDownload" -> {
-                    val id = call.argument<String>("id") ?: ""
-                    downloadService?.cancelDownload(id)
+                "setAutoResumeOnBoot" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val prefs = getSharedPreferences("netget_settings", Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean("auto_resume_on_boot", enabled).apply()
                     result.success(true)
                 }
                 "setSpeedLimit" -> {
@@ -294,6 +283,94 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         result.error("SHARE_FAILED", e.message, null)
                     }
+                }
+                "getDeviceOemInfo" -> {
+                    val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    val isIgnored = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        powerManager?.isIgnoringBatteryOptimizations(packageName) ?: false
+                    } else {
+                        true
+                    }
+                    val info = mapOf(
+                        "manufacturer" to Build.MANUFACTURER.lowercase(),
+                        "brand" to Build.BRAND.lowercase(),
+                        "model" to Build.MODEL,
+                        "sdkInt" to Build.VERSION.SDK_INT,
+                        "isBatteryOptimizationIgnored" to isIgnored
+                    )
+                    result.success(info)
+                }
+                "requestIgnoreBatteryOptimizations" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            // Fallback to general battery optimization screen
+                            try {
+                                val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                startActivity(fallbackIntent)
+                                result.success(true)
+                            } catch (err: Exception) {
+                                result.error("BATTERY_OPT_ERROR", err.message, null)
+                            }
+                        }
+                    } else {
+                        result.success(true)
+                    }
+                }
+                "openOemBatterySettings" -> {
+                    val mfr = Build.MANUFACTURER.lowercase()
+                    val intentsToTry = mutableListOf<Intent>()
+
+                    when {
+                        mfr.contains("xiaomi") || mfr.contains("redmi") || mfr.contains("poco") -> {
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")))
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.powercenter.PowerSettings")))
+                        }
+                        mfr.contains("huawei") || mfr.contains("honor") -> {
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")))
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")))
+                        }
+                        mfr.contains("samsung") -> {
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")))
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity")))
+                        }
+                        mfr.contains("transsion") || mfr.contains("tecno") || mfr.contains("infinix") || mfr.contains("itel") -> {
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.MainActivity")))
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.AutoStartManagementActivity")))
+                        }
+                        mfr.contains("oppo") || mfr.contains("realme") -> {
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")))
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")))
+                        }
+                        mfr.contains("vivo") -> {
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")))
+                            intentsToTry.add(Intent().setComponent(ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")))
+                        }
+                    }
+
+                    // Generic App Details screen fallback
+                    intentsToTry.add(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
+
+                    var launched = false
+                    for (candidate in intentsToTry) {
+                        try {
+                            candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(candidate)
+                            launched = true
+                            break
+                        } catch (_: Exception) {}
+                    }
+                    result.success(launched)
                 }
                 else -> result.notImplemented()
             }

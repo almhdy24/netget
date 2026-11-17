@@ -75,6 +75,10 @@ void main() async {
   final manager = DownloadManager(repository: repository);
   await manager.init();
 
+  if (initialSettings.autoResumeInterrupted) {
+    await manager.resumeInterruptedTasks();
+  }
+
   runApp(
     NetGetApp(
       manager: manager,
@@ -82,6 +86,23 @@ void main() async {
       initialSettings: initialSettings,
     ),
   );
+}
+
+/// Headless background entrypoint for Android foreground service / boot resume.
+@pragma('vm:entry-point')
+void downloadServiceMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final settingsRepository = SettingsRepository();
+  final settings = await settingsRepository.loadSettings();
+
+  if (!settings.autoResumeInterrupted) {
+    return;
+  }
+
+  final repository = SqliteDownloadRepository();
+  final manager = DownloadManager(repository: repository);
+  await manager.init();
+  await manager.resumeInterruptedTasks();
 }
 
 class NetGetApp extends StatefulWidget {
