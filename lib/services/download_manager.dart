@@ -1098,8 +1098,15 @@ class DownloadManager extends ChangeNotifier {
       return _clientFactory();
     }
     final client = HttpClient()
-      ..connectionTimeout = NetGetConstants.connectTimeout
-      ..badCertificateCallback = ((cert, host, port) => true);
+      ..connectionTimeout = NetGetConstants.connectTimeout;
+    if (kDebugMode &&
+        Platform.environment.containsKey('NETGET_ACCEPT_BAD_CERTS')) {
+      // ignore: avoid_print
+      print(
+        '[SECURITY WARNING] Insecure badCertificateCallback enabled by environment flag',
+      );
+      client.badCertificateCallback = ((cert, host, port) => true);
+    }
     return client;
   }
 

@@ -81,6 +81,9 @@ class AnalyticsService {
   }
 
   /// Records an application error/exception via analytics event.
+  ///
+  /// Strictly filters out raw error message strings and stack traces
+  /// which may contain file paths, tokens, query parameters, or personal data.
   static void recordError(
     Object error,
     StackTrace? stack, {
@@ -90,15 +93,9 @@ class AnalyticsService {
     try {
       if (!_initialized) return;
       final errorType = error.runtimeType.toString();
-      final errorMsg = error.toString();
-      // Keep error message concise and free of potential query params or local paths
-      final sanitizedMsg = errorMsg.length > 200
-          ? errorMsg.substring(0, 200)
-          : errorMsg;
 
       track('app_error', {
         'error_type': errorType,
-        'message': sanitizedMsg,
         if (context != null) 'context': context,
         'fatal': fatal,
       });
