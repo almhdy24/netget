@@ -112,6 +112,7 @@ void main() {
 
   test(
     'Benchmark: Throttled server (1 MB/s per connection) across 1, 2, 4, 8 connections (3 runs each, median)',
+    timeout: const Timeout(Duration(minutes: 2)),
     () async {
       const fileSize = 3 * 1024 * 1024; // 3 MB
       final server = TestHttpServer(

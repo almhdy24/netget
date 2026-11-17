@@ -46,11 +46,14 @@ void main() {
     },
   );
 
-  test('loadAnalyticsEnabled defaults to false (opt-in) when file missing', () async {
-    final repo = SettingsRepository(file: settingsFile);
-    final enabled = await repo.loadAnalyticsEnabled();
-    expect(enabled, isFalse);
-  });
+  test(
+    'loadAnalyticsEnabled defaults to false (opt-in) when file missing',
+    () async {
+      final repo = SettingsRepository(file: settingsFile);
+      final enabled = await repo.loadAnalyticsEnabled();
+      expect(enabled, isFalse);
+    },
+  );
 
   test('saveAnalyticsEnabled persists false and true correctly', () async {
     final repo = SettingsRepository(file: settingsFile);

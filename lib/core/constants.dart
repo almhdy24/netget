@@ -73,7 +73,7 @@ class NetGetConstants {
 
   static const String almhdyAnalyticsProjectKey = String.fromEnvironment(
     'ALMHDY_PROJECT_KEY',
-    defaultValue: 'ak_live_5b26980623961e99c0e18de3b0bc90dd',
+    defaultValue: '',
   );
 
   static const int defaultConnections = 1;

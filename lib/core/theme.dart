@@ -110,6 +110,7 @@ class NetGetTheme {
 
     return ThemeData(
       useMaterial3: true,
+      splashFactory: InkRipple.splashFactory,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: const Color(0xFFF8FAFC),
       extensions: const [NetGetStatusColors.light],
@@ -194,6 +195,7 @@ class NetGetTheme {
 
     return ThemeData(
       useMaterial3: true,
+      splashFactory: InkRipple.splashFactory,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: const Color(0xFF0B1120),
       extensions: const [NetGetStatusColors.dark],

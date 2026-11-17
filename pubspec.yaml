@@ -15,6 +15,7 @@ dependencies:
   path: ^1.9.1
   open_filex: ^4.7.0
   share_plus: ^13.3.0
+  crypto: ^3.0.6
   almhdy_analytics:
     path: packages/almhdy_analytics
 
