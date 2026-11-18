@@ -60,6 +60,12 @@ class FileChangedOnServerFailure extends DownloadFailure {
   DownloadFailureCode get code => DownloadFailureCode.fileChangedOnServer;
 }
 
+class HtmlServedInsteadOfFileFailure extends DownloadFailure {
+  const HtmlServedInsteadOfFileFailure({super.rawDetail});
+  @override
+  DownloadFailureCode get code => DownloadFailureCode.htmlServedInsteadOfFile;
+}
+
 class UnknownFailure extends DownloadFailure {
   const UnknownFailure({super.rawDetail});
   @override
@@ -75,6 +81,7 @@ enum DownloadFailureCode {
   http403,
   http404,
   serverError,
+  htmlServedInsteadOfFile,
   unknown;
 
   String localizedMessage({bool isArabic = false}) {
@@ -96,6 +103,8 @@ enum DownloadFailureCode {
           return 'الملف غير موجود على الخادم (404)';
         case DownloadFailureCode.serverError:
           return 'خطأ في خادم الملف';
+        case DownloadFailureCode.htmlServedInsteadOfFile:
+          return 'ملف HTML بدلاً من الملف الأصلي — تحقق من الرابط';
         case DownloadFailureCode.unknown:
           return 'فشل التنزيل';
       }
@@ -117,6 +126,8 @@ enum DownloadFailureCode {
           return 'File not found (404)';
         case DownloadFailureCode.serverError:
           return 'Server error';
+        case DownloadFailureCode.htmlServedInsteadOfFile:
+          return 'HTML page served instead of expected file';
         case DownloadFailureCode.unknown:
           return 'Download failed';
       }
@@ -183,6 +194,12 @@ class DownloadFailureMapper {
     }
 
     final str = error.toString().toLowerCase();
+    if (str.contains('html') &&
+        (str.contains('served instead') ||
+            str.contains('text/html') ||
+            str.contains('htmlinsteadof'))) {
+      return HtmlServedInsteadOfFileFailure(rawDetail: error.toString());
+    }
     if (str.contains('diskspace') ||
         str.contains('no space') ||
         str.contains('enospc') ||

@@ -406,6 +406,79 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
                 onCopy: () => _copyToClipboard(task.url, 'URL'),
               ),
               const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Mirrors (روابط بديلة)',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        TextButton.icon(
+                          icon: const Icon(Icons.add, size: 14),
+                          label: const Text(
+                            'Add Mirror',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                          ),
+                          onPressed: () => _promptAddMirror(context, task),
+                        ),
+                      ],
+                    ),
+                    if (task.mirrors.isEmpty)
+                      const Text(
+                        'None configured',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      )
+                    else
+                      for (final m in task.mirrors)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.link,
+                                size: 14,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  m,
+                                  style: const TextStyle(fontSize: 11.5),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 14,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () =>
+                                    widget.manager.removeMirror(task.id, m),
+                              ),
+                            ],
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
               if (task.referrer != null && task.referrer!.isNotEmpty) ...[
                 _buildInfoRow(
                   context,
@@ -450,6 +523,40 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _promptAddMirror(BuildContext context, DownloadTask task) async {
+    final controller = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Mirror URL'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Mirror URL',
+            hintText: 'https://...',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final url = controller.text.trim();
+              if (url.isNotEmpty) {
+                await widget.manager.addMirror(task.id, url);
+              }
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
   }
 

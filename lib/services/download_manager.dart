@@ -884,6 +884,75 @@ class DownloadManager extends ChangeNotifier {
     _processQueue();
   }
 
+  /// Adds a mirror URL to an existing task.
+  Future<void> addMirror(String taskId, String mirrorUrl) async {
+    final clean = mirrorUrl.trim();
+    if (clean.isEmpty) return;
+    final current = _store.getById(taskId);
+    if (current == null) return;
+    if (current.mirrors.contains(clean) || current.url == clean) return;
+    final updatedMirrors = List<String>.from(current.mirrors)..add(clean);
+    _store.update(
+      taskId,
+      (t) => t.copyWith(mirrors: updatedMirrors),
+      notifyAggregate: true,
+    );
+    logEvent(taskId, 'INFO', 'Added mirror: $clean');
+    await saveImmediate();
+  }
+
+  /// Removes a mirror URL from an existing task.
+  Future<void> removeMirror(String taskId, String mirrorUrl) async {
+    final current = _store.getById(taskId);
+    if (current == null) return;
+    final clean = mirrorUrl.trim();
+    final updatedMirrors = List<String>.from(current.mirrors)..remove(clean);
+    _store.update(
+      taskId,
+      (t) => t.copyWith(mirrors: updatedMirrors),
+      notifyAggregate: true,
+    );
+    logEvent(taskId, 'INFO', 'Removed mirror: $clean');
+    await saveImmediate();
+  }
+
+  /// Probes candidate mirrors and returns the first one matching the task's properties.
+  Future<String?> _findWorkingMirror(DownloadTask task) async {
+    if (task.mirrors.isEmpty) return null;
+    for (final mirror in task.mirrors) {
+      final cleanMirror = mirror.trim();
+      if (cleanMirror.isEmpty || cleanMirror == task.url.trim()) continue;
+      try {
+        final analysis = await analyzeUrl(cleanMirror);
+        // Verify size match if existing task has known totalBytes
+        if (task.totalBytes > 0 && analysis.totalBytes > 0) {
+          if (task.totalBytes == analysis.totalBytes) {
+            return cleanMirror;
+          }
+        } else if (task.etag != null &&
+            analysis.etag != null &&
+            task.etag!.isNotEmpty &&
+            analysis.etag!.isNotEmpty) {
+          if (task.etag == analysis.etag) {
+            return cleanMirror;
+          }
+        } else if (analysis.totalBytes > 0 || analysis.resumable) {
+          return cleanMirror;
+        }
+      } catch (e) {
+        logEvent(task.id, 'WARN', 'Mirror probe failed for $cleanMirror: $e');
+      }
+    }
+    return null;
+  }
+
+  /// Opens a URL in external web browser.
+  Future<void> openInBrowser(String url) async {
+    final clean = url.trim();
+    if (clean.isEmpty) return;
+    await _invokeNative('openBrowser', {'url': clean});
+  }
+
   /// Restarts download from scratch (deletes partial file).
   Future<void> reDownload(String taskId) async {
     _networkRetryTimers.remove(taskId)?.cancel();
@@ -1463,6 +1532,7 @@ class DownloadManager extends ChangeNotifier {
           speedLimitBytesPerSec: _speedMode.bytesPerSec,
           etag: currentTask.etag,
           lastModified: currentTask.lastModified,
+          expectedFileName: currentTask.fileName,
           initialSegments: currentTask.segments,
           clientFactory: () => _createHttpClient(),
           onProgress: (downloaded, total, speed, segs) {
@@ -1597,6 +1667,30 @@ class DownloadManager extends ChangeNotifier {
           return;
         }
 
+        if (e is HtmlServedInsteadOfFileException) {
+          _store.update(
+            taskId,
+            (t) => t.copyWith(
+              status: DownloadStatus.paused,
+              pauseReason: 'html_instead_of_file',
+              errorMessage: 'ملف HTML بدلاً من الملف الأصلي — تحقق من الرابط',
+              speedBytesPerSec: 0.0,
+            ),
+            notifyAggregate: true,
+          );
+          logEvent(
+            taskId,
+            'WARN',
+            'Download paused: HTML page served instead of file ($e)',
+          );
+          AnalyticsService.trackDownloadFailed(
+            errorType: 'html_instead_of_file',
+          );
+          await saveImmediate();
+          _processQueue();
+          return;
+        }
+
         if (e is DiskSpaceException ||
             (e is FileSystemException &&
                 (e.message.contains('Insufficient disk space') ||
@@ -1619,6 +1713,37 @@ class DownloadManager extends ChangeNotifier {
           await saveImmediate();
           _processQueue();
           return;
+        }
+
+        // Automatic mirror failover if mirrors are configured for this task
+        final currentT = _store.getById(taskId);
+        if (currentT != null && currentT.mirrors.isNotEmpty) {
+          final workingMirror = await _findWorkingMirror(currentT);
+          if (workingMirror != null) {
+            final updatedMirrors = List<String>.from(currentT.mirrors)
+              ..remove(workingMirror)
+              ..add(currentT.url);
+            _store.update(
+              taskId,
+              (t) => t.copyWith(
+                url: workingMirror,
+                mirrors: updatedMirrors,
+                status: DownloadStatus.queued,
+                clearError: true,
+                clearPauseReason: true,
+              ),
+              notifyAggregate: true,
+            );
+            logEvent(
+              taskId,
+              'INFO',
+              'Failover: transparently switched to mirror $workingMirror',
+            );
+            await saveImmediate();
+            _startingTasks.remove(taskId);
+            _processQueue();
+            return;
+          }
         }
 
         if (e is HttpException &&
@@ -1647,10 +1772,10 @@ class DownloadManager extends ChangeNotifier {
           return;
         }
 
-        final currentT = _store.getById(taskId);
-        if (currentT != null &&
-            !currentT.status.isPaused &&
-            !currentT.status.isCancelled) {
+        final failedCurrentT = _store.getById(taskId);
+        if (failedCurrentT != null &&
+            !failedCurrentT.status.isPaused &&
+            !failedCurrentT.status.isCancelled) {
           final failureCode = DownloadFailureMapper.mapException(e);
           final cleanMsg = failureCode.localizedMessage();
           final failedTask = _store.update(

@@ -209,6 +209,82 @@ class NetGetUtils {
     return null;
   }
 
+  /// Returns whether a given file name or URL path has a binary extension
+  /// (as opposed to web document extensions like html, htm, php).
+  static bool isBinaryFileName(String fileName) {
+    if (!fileName.contains('.')) return false;
+    final ext = fileName.split('.').last.toLowerCase().split('?').first.trim();
+    if (ext.isEmpty ||
+        ext == 'html' ||
+        ext == 'htm' ||
+        ext == 'xhtml' ||
+        ext == 'php' ||
+        ext == 'asp' ||
+        ext == 'aspx') {
+      return false;
+    }
+    const binaryExts = {
+      'zip',
+      'rar',
+      '7z',
+      'tar',
+      'gz',
+      'bz2',
+      'xz',
+      'iso',
+      'bin',
+      'img',
+      'tgz',
+      'apk',
+      'xapk',
+      'apks',
+      'aab',
+      'exe',
+      'msi',
+      'dmg',
+      'pkg',
+      'deb',
+      'rpm',
+      'mp4',
+      'mkv',
+      'avi',
+      'mov',
+      'webm',
+      'flv',
+      'wmv',
+      '3gp',
+      'm4v',
+      'mp3',
+      'wav',
+      'flac',
+      'aac',
+      'ogg',
+      'm4a',
+      'wma',
+      'opus',
+      'pdf',
+      'epub',
+      'mobi',
+      'djvu',
+      'doc',
+      'docx',
+      'xls',
+      'xlsx',
+      'ppt',
+      'pptx',
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'webp',
+      'bmp',
+      'svg',
+      'ico',
+      'tiff',
+    };
+    return binaryExts.contains(ext);
+  }
+
   /// Classifies a file into one of the DownloadCategory categories.
   static DownloadCategory classifyCategory(
     String fileName, [

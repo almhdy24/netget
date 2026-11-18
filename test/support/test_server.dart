@@ -152,6 +152,17 @@ class NetGetTestServer {
       return;
     }
 
+    // HTML page simulation (e.g. login / captcha redirect served instead of file)
+    if (path == '/html_page' || path.endsWith('.html')) {
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.contentType = ContentType.html;
+      request.response.write(
+        '<!DOCTYPE html><html><body><h1>Captcha Challenge</h1></body></html>',
+      );
+      await request.response.close();
+      return;
+    }
+
     // HEAD method check
     if (request.method == 'HEAD' && disallowHead) {
       request.response.statusCode = HttpStatus.methodNotAllowed;

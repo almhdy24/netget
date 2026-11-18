@@ -258,6 +258,18 @@ class MainActivity : FlutterActivity() {
                         result.success("unknown")
                     }
                 }
+                "openBrowser" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("BROWSER_FAILED", e.message, null)
+                    }
+                }
                 "openFile" -> {
                     val filePath = call.argument<String>("path") ?: ""
                     try {

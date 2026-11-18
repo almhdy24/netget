@@ -194,6 +194,15 @@ class ConcurrentFileWriter {
   }
 }
 
+class HtmlServedInsteadOfFileException implements Exception {
+  final String message;
+  final String? contentType;
+  HtmlServedInsteadOfFileException(this.message, {this.contentType});
+
+  @override
+  String toString() => message;
+}
+
 /// Result metadata returned after link probe.
 class LinkProbeResult {
   final bool isRangeSupported;
@@ -201,6 +210,7 @@ class LinkProbeResult {
   final String? etag;
   final String? lastModified;
   final String? suggestedFileName;
+  final String? contentType;
 
   LinkProbeResult({
     required this.isRangeSupported,
@@ -208,6 +218,7 @@ class LinkProbeResult {
     this.etag,
     this.lastModified,
     this.suggestedFileName,
+    this.contentType,
   });
 }
 
@@ -268,6 +279,7 @@ class MultiConnectionDownloader {
   final Future<ConcurrentFileWriter> Function(File file)? writerFactory;
   final int speedLimitBytesPerSec;
   final TokenBucket? tokenBucket;
+  final String? expectedFileName;
 
   bool _isPaused = false;
   bool _isCancelled = false;
@@ -299,6 +311,7 @@ class MultiConnectionDownloader {
     this.writerFactory,
     this.speedLimitBytesPerSec = 0,
     TokenBucket? tokenBucket,
+    this.expectedFileName,
     List<DownloadSegment>? initialSegments,
   }) : hostPool = hostPool ?? HostConnectionPool.defaultPool,
        tokenBucket =
@@ -443,6 +456,23 @@ class MultiConnectionDownloader {
           }
         }
 
+        final contentType = response.headers.contentType?.value.toLowerCase();
+        final effectiveName =
+            parsedFileName ??
+            expectedFileName ??
+            (uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '');
+        final isHtml =
+            contentType != null &&
+            (contentType.contains('text/html') ||
+                contentType.contains('application/xhtml+xml'));
+        if (isHtml && NetGetUtils.isBinaryFileName(effectiveName)) {
+          await response.drain<void>();
+          throw HtmlServedInsteadOfFileException(
+            'Server returned HTML page ($contentType) instead of expected binary file ($effectiveName)',
+            contentType: contentType,
+          );
+        }
+
         // Drain probe response body
         await response.drain<void>();
 
@@ -452,6 +482,7 @@ class MultiConnectionDownloader {
           etag: serverEtag,
           lastModified: serverLastModified,
           suggestedFileName: parsedFileName,
+          contentType: contentType,
         );
       } catch (e) {
         if (_isPaused || _isCancelled) {
@@ -851,6 +882,24 @@ class MultiConnectionDownloader {
           throw HttpException(
             'HTTP $statusCode: ${response.reasonPhrase}',
             uri: uri,
+          );
+        }
+
+        final contentType = response.headers.contentType?.value.toLowerCase();
+        final effectiveName =
+            expectedFileName ??
+            (uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '');
+        final isHtml =
+            contentType != null &&
+            (contentType.contains('text/html') ||
+                contentType.contains('application/xhtml+xml'));
+        if (isHtml &&
+            startOffset == 0 &&
+            NetGetUtils.isBinaryFileName(effectiveName)) {
+          await response.drain<void>();
+          throw HtmlServedInsteadOfFileException(
+            'Server returned HTML page ($contentType) instead of expected binary file ($effectiveName)',
+            contentType: contentType,
           );
         }
 

@@ -53,6 +53,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
   late final TextEditingController _urlController;
   late final TextEditingController _nameController;
   late final TextEditingController _subFolderController;
+  late final TextEditingController _mirrorsController;
 
   bool _isAutoName = true;
   bool _isAnalyzing = false;
@@ -76,6 +77,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
     _urlController = TextEditingController(text: startUrl);
     _nameController = TextEditingController();
     _subFolderController = TextEditingController();
+    _mirrorsController = TextEditingController();
 
     if (startUrl.isNotEmpty) {
       _nameController.text = NetGetUtils.extractFileNameFromUrl(startUrl);
@@ -108,6 +110,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
     _urlController.dispose();
     _nameController.dispose();
     _subFolderController.dispose();
+    _mirrorsController.dispose();
     super.dispose();
   }
 
@@ -197,6 +200,14 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
 
       final customName = _nameController.text.trim();
       final subFolder = _subFolderController.text.trim();
+      final rawMirrors = _mirrorsController.text.trim();
+      final mirrors = rawMirrors.isNotEmpty
+          ? rawMirrors
+                .split(RegExp(r'[\r\n,]+'))
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty && s != url)
+                .toList()
+          : null;
 
       await widget.manager.addDownload(
         url: url,
@@ -210,6 +221,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
         etag: _analysis?.etag,
         lastModified: _analysis?.lastModified,
         networkPolicy: _selectedNetworkPolicy,
+        mirrors: mirrors,
         source: widget.initialUrl != null ? 'clipboard' : 'link',
       );
 
@@ -701,6 +713,40 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                       setState(() => _selectedNetworkPolicy = sel.first);
                     },
                   ),
+                ),
+                const SizedBox(height: 10),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  title: Row(
+                    children: [
+                      const Icon(Icons.alt_route_rounded, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        Directionality.of(context) == TextDirection.rtl
+                            ? 'روابط بديلة (Mirrors - اختياري)'
+                            : 'Alternative Mirrors (Optional)',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    TextField(
+                      controller: _mirrorsController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        hintText:
+                            Directionality.of(context) == TextDirection.rtl
+                            ? 'أدخل روابط بديلة (رابط لكل سطر)...'
+                            : 'Enter backup mirrors (one URL per line)...',
+                        hintStyle: const TextStyle(fontSize: 11),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
