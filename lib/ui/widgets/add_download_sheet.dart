@@ -325,440 +325,385 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
 
     final isResumable = analysis?.resumable ?? true;
 
-    return Container(
-      constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.88),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-      ),
-      padding: EdgeInsets.fromLTRB(20, 14, 20, effectiveBottomPadding),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Drag handle
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF383E46)
-                      : const Color(0xFFD6DBE2),
-                  borderRadius: BorderRadius.circular(2),
+    return Material(
+      color: theme.colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.88),
+        padding: EdgeInsets.fromLTRB(20, 14, 20, effectiveBottomPadding),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF383E46)
+                        : const Color(0xFFD6DBE2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
 
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.add_link_rounded,
-                        color: theme.colorScheme.primary,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          'Download File Info',
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.add_link_rounded,
+                          color: theme.colorScheme.primary,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Download File Info',
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
+                      ],
+                    ),
+                  ),
+                  if (_isAnalyzing) ...[
+                    const SizedBox(width: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Analyzing...',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 11,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Duplicate warning banner if duplicate detected
+              if (_duplicateTask != null && !_allowDuplicateDownload) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF57C00).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFFF57C00).withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFFF57C00),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Duplicate link already in queue ("${_duplicateTask!.fileName}")',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFFE65100),
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _showDuplicateDialog,
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        child: const Text('Options'),
                       ),
                     ],
                   ),
                 ),
-                if (_isAnalyzing) ...[
-                  const SizedBox(width: 8),
-                  Row(
+                const SizedBox(height: 10),
+              ],
+
+              // URL Input
+              TextField(
+                controller: _urlController,
+                keyboardType: TextInputType.url,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (val) => _checkForDuplicateAndAnalyze(val),
+                decoration: InputDecoration(
+                  labelText: 'Download URL',
+                  hintText: 'https://example.com/file.zip',
+                  prefixIcon: const Icon(Icons.link_rounded, size: 20),
+                  suffixIcon: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                      IconButton(
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        tooltip: 'Re-analyze',
+                        onPressed: () =>
+                            _checkForDuplicateAndAnalyze(_urlController.text),
                       ),
-                      const SizedBox(width: 6),
+                      IconButton(
+                        icon: const Icon(Icons.content_paste_rounded, size: 18),
+                        tooltip: 'Paste from clipboard',
+                        onPressed: _pasteFromClipboard,
+                      ),
+                    ],
+                  ),
+                  errorText: _errorText,
+                ),
+              ),
+              if (_urlController.text.isEmpty) ...[
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: ActionChip(
+                    avatar: const Icon(Icons.content_paste_rounded, size: 14),
+                    label: const Text(
+                      'Paste from clipboard',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    onPressed: _pasteFromClipboard,
+                  ),
+                ),
+              ],
+              if (_urlController.text
+                      .split(RegExp(r'[\r\n]+'))
+                      .where(
+                        (s) =>
+                            s.trim().startsWith('http://') ||
+                            s.trim().startsWith('https://'),
+                      )
+                      .length >
+                  1) ...[
+                const SizedBox(height: 6),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: FilledButton.tonalIcon(
+                    icon: const Icon(Icons.playlist_add_rounded, size: 16),
+                    label: Text(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? 'تحويل إلى إضافة دفعة روابط'
+                          : 'Convert to Batch Add',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    onPressed: () {
+                      final text = _urlController.text;
+                      Navigator.of(context).pop();
+                      BatchAddDialog.show(
+                        context,
+                        manager: widget.manager,
+                        initialText: text,
+                      );
+                    },
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+
+              // File Name Input
+              TextField(
+                controller: _nameController,
+                textInputAction: TextInputAction.next,
+                onChanged: (text) {
+                  if (_isAutoName && text.isNotEmpty) {
+                    _isAutoName = false;
+                  }
+                },
+                decoration: const InputDecoration(
+                  labelText: 'File Name',
+                  hintText: 'Auto-detected',
+                  prefixIcon: Icon(Icons.description_outlined, size: 20),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Metadata card: Size, Resume support, Category
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF14171A)
+                      : const Color(0xFFF3F5F8),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFF262B32)
+                        : const Color(0xFFE2E6EC),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Flexible(
+                          child: _buildMetaChip(
+                            context,
+                            label: 'Size',
+                            value: sizeStr,
+                            icon: Icons.data_usage_rounded,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(child: _buildResumeChip(context, isResumable)),
+                      ],
+                    ),
+                    const Divider(height: 16),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.folder_outlined,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Category:',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<DownloadCategory>(
+                              value: _selectedCategory,
+                              isDense: true,
+                              isExpanded: true,
+                              iconSize: 18,
+                              items: DownloadCategory.values
+                                  .where((c) => c != DownloadCategory.all)
+                                  .map(
+                                    (cat) => DropdownMenuItem(
+                                      value: cat,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            NetGetUtils.getCategoryIcon(cat),
+                                            size: 15,
+                                            color: theme.colorScheme.primary,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Flexible(
+                                            child: Text(
+                                              cat.label,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (cat) {
+                                if (cat != null) {
+                                  setState(() {
+                                    _selectedCategory = cat;
+                                    _subFolderController.text = cat.folderName;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Save to folder field
+              TextField(
+                controller: _subFolderController,
+                decoration: const InputDecoration(
+                  labelText: 'Save Subfolder',
+                  hintText: 'e.g. Video, Documents, ISO',
+                  prefixIcon: Icon(Icons.create_new_folder_outlined, size: 20),
+                  helperText: 'Saved inside public Downloads/NetGet folder',
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Connections selector (1/2/4, default 1)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Connections (multi-connection beta):',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
-                        'Analyzing...',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontSize: 11,
+                        _connections == 1
+                            ? '1 connection'
+                            : '$_connections connections',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
                           color: theme.colorScheme.primary,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 14),
-
-            // Duplicate warning banner if duplicate detected
-            if (_duplicateTask != null && !_allowDuplicateDownload) ...[
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF57C00).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: const Color(0xFFF57C00).withValues(alpha: 0.3),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment(value: 1, label: Text('1 (Standard)')),
+                        ButtonSegment(value: 2, label: Text('2 (Beta)')),
+                        ButtonSegment(value: 4, label: Text('4 (Beta)')),
+                      ],
+                      selected: {_connections},
+                      onSelectionChanged: isResumable
+                          ? (sel) => setState(() => _connections = sel.first)
+                          : null,
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.warning_amber_rounded,
-                      color: Color(0xFFF57C00),
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Duplicate link already in queue ("${_duplicateTask!.fileName}")',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFFE65100),
-                        ),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: _showDuplicateDialog,
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      child: const Text('Options'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
-
-            // URL Input
-            TextField(
-              controller: _urlController,
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.next,
-              onSubmitted: (val) => _checkForDuplicateAndAnalyze(val),
-              decoration: InputDecoration(
-                labelText: 'Download URL',
-                hintText: 'https://example.com/file.zip',
-                prefixIcon: const Icon(Icons.link_rounded, size: 20),
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                      tooltip: 'Re-analyze',
-                      onPressed: () =>
-                          _checkForDuplicateAndAnalyze(_urlController.text),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.content_paste_rounded, size: 18),
-                      tooltip: 'Paste from clipboard',
-                      onPressed: _pasteFromClipboard,
-                    ),
-                  ],
-                ),
-                errorText: _errorText,
-              ),
-            ),
-            if (_urlController.text.isEmpty) ...[
-              const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: ActionChip(
-                  avatar: const Icon(Icons.content_paste_rounded, size: 14),
-                  label: const Text(
-                    'Paste from clipboard',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  onPressed: _pasteFromClipboard,
-                ),
-              ),
-            ],
-            if (_urlController.text
-                    .split(RegExp(r'[\r\n]+'))
-                    .where(
-                      (s) =>
-                          s.trim().startsWith('http://') ||
-                          s.trim().startsWith('https://'),
-                    )
-                    .length >
-                1) ...[
-              const SizedBox(height: 6),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: FilledButton.tonalIcon(
-                  icon: const Icon(Icons.playlist_add_rounded, size: 16),
-                  label: Text(
-                    Directionality.of(context) == TextDirection.rtl
-                        ? 'تحويل إلى إضافة دفعة روابط'
-                        : 'Convert to Batch Add',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  onPressed: () {
-                    final text = _urlController.text;
-                    Navigator.of(context).pop();
-                    BatchAddDialog.show(
-                      context,
-                      manager: widget.manager,
-                      initialText: text,
-                    );
-                  },
-                ),
-              ),
-            ],
-            const SizedBox(height: 10),
-
-            // File Name Input
-            TextField(
-              controller: _nameController,
-              textInputAction: TextInputAction.next,
-              onChanged: (text) {
-                if (_isAutoName && text.isNotEmpty) {
-                  _isAutoName = false;
-                }
-              },
-              decoration: const InputDecoration(
-                labelText: 'File Name',
-                hintText: 'Auto-detected',
-                prefixIcon: Icon(Icons.description_outlined, size: 20),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // Metadata card: Size, Resume support, Category
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? const Color(0xFF14171A)
-                    : const Color(0xFFF3F5F8),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: isDark
-                      ? const Color(0xFF262B32)
-                      : const Color(0xFFE2E6EC),
-                ),
-              ),
-              child: Column(
-                children: [
+                  const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Flexible(
-                        child: _buildMetaChip(
-                          context,
-                          label: 'Size',
-                          value: sizeStr,
-                          icon: Icons.data_usage_rounded,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(child: _buildResumeChip(context, isResumable)),
-                    ],
-                  ),
-                  const Divider(height: 16),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.folder_outlined,
-                        size: 16,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Category:',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<DownloadCategory>(
-                            value: _selectedCategory,
-                            isDense: true,
-                            isExpanded: true,
-                            iconSize: 18,
-                            items: DownloadCategory.values
-                                .where((c) => c != DownloadCategory.all)
-                                .map(
-                                  (cat) => DropdownMenuItem(
-                                    value: cat,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          NetGetUtils.getCategoryIcon(cat),
-                                          size: 15,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Flexible(
-                                          child: Text(
-                                            cat.label,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (cat) {
-                              if (cat != null) {
-                                setState(() {
-                                  _selectedCategory = cat;
-                                  _subFolderController.text = cat.folderName;
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // Save to folder field
-            TextField(
-              controller: _subFolderController,
-              decoration: const InputDecoration(
-                labelText: 'Save Subfolder',
-                hintText: 'e.g. Video, Documents, ISO',
-                prefixIcon: Icon(Icons.create_new_folder_outlined, size: 20),
-                helperText: 'Saved inside public Downloads/NetGet folder',
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // Connections selector (1/2/4, default 1)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Connections (multi-connection beta):',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _connections == 1
-                          ? '1 connection'
-                          : '$_connections connections',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<int>(
-                    segments: const [
-                      ButtonSegment(value: 1, label: Text('1 (Standard)')),
-                      ButtonSegment(value: 2, label: Text('2 (Beta)')),
-                      ButtonSegment(value: 4, label: Text('4 (Beta)')),
-                    ],
-                    selected: {_connections},
-                    onSelectionChanged: isResumable
-                        ? (sel) => setState(() => _connections = sel.first)
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      Directionality.of(context) == TextDirection.rtl
-                          ? 'سياسة الشبكة:'
-                          : 'Network Policy:',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<NetworkPolicy>(
-                    segments: [
-                      ButtonSegment(
-                        value: NetworkPolicy.anyNetwork,
-                        label: Text(
-                          Directionality.of(context) == TextDirection.rtl
-                              ? 'أي شبكة'
-                              : 'Any Net',
-                        ),
-                      ),
-                      ButtonSegment(
-                        value: NetworkPolicy.wifiOnly,
-                        label: Text(
-                          Directionality.of(context) == TextDirection.rtl
-                              ? 'واي-فاي فقط'
-                              : 'Wi-Fi Only',
-                        ),
-                      ),
-                      ButtonSegment(
-                        value: NetworkPolicy.wifiOrFreeWindow,
-                        label: Text(
-                          Directionality.of(context) == TextDirection.rtl
-                              ? 'ليلي / مجاني'
-                              : 'Night / Free',
-                        ),
-                      ),
-                    ],
-                    selected: {_selectedNetworkPolicy},
-                    onSelectionChanged: (sel) {
-                      setState(() => _selectedNetworkPolicy = sel.first);
-                    },
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  childrenPadding: const EdgeInsets.only(bottom: 8),
-                  title: Row(
-                    children: [
-                      const Icon(Icons.alt_route_rounded, size: 16),
-                      const SizedBox(width: 6),
                       Text(
                         Directionality.of(context) == TextDirection.rtl
-                            ? 'روابط بديلة (Mirrors - اختياري)'
-                            : 'Alternative Mirrors (Optional)',
+                            ? 'سياسة الشبكة:'
+                            : 'Network Policy:',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
@@ -766,68 +711,127 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                       ),
                     ],
                   ),
-                  children: [
-                    TextField(
-                      controller: _mirrorsController,
-                      maxLines: 2,
-                      decoration: InputDecoration(
-                        hintText:
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<NetworkPolicy>(
+                      segments: [
+                        ButtonSegment(
+                          value: NetworkPolicy.anyNetwork,
+                          label: Text(
                             Directionality.of(context) == TextDirection.rtl
-                            ? 'أدخل روابط بديلة (رابط لكل سطر)...'
-                            : 'Enter backup mirrors (one URL per line)...',
-                        hintStyle: const TextStyle(fontSize: 11),
-                        border: const OutlineInputBorder(),
-                      ),
+                                ? 'أي شبكة'
+                                : 'Any Net',
+                          ),
+                        ),
+                        ButtonSegment(
+                          value: NetworkPolicy.wifiOnly,
+                          label: Text(
+                            Directionality.of(context) == TextDirection.rtl
+                                ? 'واي-فاي فقط'
+                                : 'Wi-Fi Only',
+                          ),
+                        ),
+                        ButtonSegment(
+                          value: NetworkPolicy.wifiOrFreeWindow,
+                          label: Text(
+                            Directionality.of(context) == TextDirection.rtl
+                                ? 'ليلي / مجاني'
+                                : 'Night / Free',
+                          ),
+                        ),
+                      ],
+                      selected: {_selectedNetworkPolicy},
+                      onSelectionChanged: (sel) {
+                        setState(() => _selectedNetworkPolicy = sel.first);
+                      },
                     ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Action Buttons: [Download later] [Start now]
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _isSubmitting
-                        ? null
-                        : () => _submit(startNow: false),
-                    style: OutlinedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text('Download later'),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _isSubmitting
-                        ? null
-                        : () => _submit(startNow: true),
-                    icon: _isSubmitting
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+                  const SizedBox(height: 10),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    title: Row(
+                      children: [
+                        const Icon(Icons.alt_route_rounded, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            Directionality.of(context) == TextDirection.rtl
+                                ? 'روابط بديلة (Mirrors - اختياري)'
+                                : 'Alternative Mirrors (Optional)',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
                             ),
-                          )
-                        : const Icon(Icons.download_rounded, size: 18),
-                    label: const Text('Start now'),
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    children: [
+                      TextField(
+                        controller: _mirrorsController,
+                        maxLines: 2,
+                        decoration: InputDecoration(
+                          hintText:
+                              Directionality.of(context) == TextDirection.rtl
+                              ? 'أدخل روابط بديلة (رابط لكل سطر)...'
+                              : 'Enter backup mirrors (one URL per line)...',
+                          hintStyle: const TextStyle(fontSize: 11),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Action Buttons: [Download later] [Start now]
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () => _submit(startNow: false),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text('Download later'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () => _submit(startNow: true),
+                      icon: _isSubmitting
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.download_rounded, size: 18),
+                      label: const Text('Start now'),
+                      style: FilledButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -149,7 +149,11 @@ void main() {
           networkPolicy: NetworkPolicy.anyNetwork,
         );
 
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        for (int i = 0; i < 20; i++) {
+          final current = manager.tasks.firstWhere((t) => t.id == task.id);
+          if (current.status == DownloadStatus.paused) break;
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
 
         final updated = manager.tasks.firstWhere((t) => t.id == task.id);
         expect(updated.status, equals(DownloadStatus.paused));

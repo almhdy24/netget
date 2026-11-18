@@ -427,12 +427,15 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Mirrors (روابط بديلة)',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            color: Colors.grey,
-                            fontWeight: FontWeight.w600,
+                        const Flexible(
+                          child: Text(
+                            'Mirrors (روابط بديلة)',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         TextButton.icon(

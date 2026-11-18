@@ -94,7 +94,13 @@ https://example.com/doc.pdf
 
     await tester.runAsync(() async {
       submitButton.onPressed!();
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      for (int i = 0; i < 40; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        if (manager.tasks.length == 3) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          break;
+        }
+      }
     });
     await tester.pump();
 
