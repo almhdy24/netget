@@ -179,4 +179,40 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get categoryOther => 'Other';
+
+  @override
+  String get sloganNeverStartFromZero => 'We never start from zero';
+
+  @override
+  String get dataBudget => 'Data Budget';
+
+  @override
+  String get freeWindows => 'Free Windows';
+
+  @override
+  String get nearbyShare => 'Nearby Share';
+
+  @override
+  String get batchAdd => 'Batch Add';
+
+  @override
+  String get integrityVerification => 'Integrity Verification';
+
+  @override
+  String get resilienceInsights => 'Resilience Insights';
+
+  @override
+  String get preservedData => 'Preserved Data';
+
+  @override
+  String get recoveredDrops => 'Recovered Drops';
+
+  @override
+  String get mirrors => 'Mirrors';
+
+  @override
+  String get threads => 'Download Threads';
+
+  @override
+  String get easternDigits => 'Eastern Arabic Digits (١، ٢، ٣)';
 }

@@ -55,5 +55,17 @@
   "categoryDocuments": "مستندات",
   "categoryArchives": "أرشيف",
   "categoryApps": "تطبيقات",
-  "categoryOther": "أخرى"
+  "categoryOther": "أخرى",
+  "sloganNeverStartFromZero": "ما بنبدأ من الصفر",
+  "dataBudget": "ميزانية البيانات",
+  "freeWindows": "الساعات المجانية",
+  "nearbyShare": "شارك بالقرب",
+  "batchAdd": "إضافة دفعة روابط",
+  "integrityVerification": "فحص سلامة الملف",
+  "resilienceInsights": "رؤى الصمود",
+  "preservedData": "بيانات تم إنقاذها",
+  "recoveredDrops": "انقطاعات تم تجاوزها",
+  "mirrors": "روابط بديلة (Mirrors)",
+  "threads": "خيوط التحميل",
+  "easternDigits": "الأرقام المشرقية (١، ٢، ٣)"
 }

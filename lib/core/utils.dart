@@ -30,6 +30,19 @@ class NetGetUtils {
   }
 
   /// Formats byte count into human-readable string (B, KB, MB, GB).
+  static String formatNumber(num value, {bool easternDigits = false}) {
+    final str = value.toString();
+    if (!easternDigits) return str;
+    const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    var result = str;
+    for (int i = 0; i < 10; i++) {
+      result = result.replaceAll(western[i], eastern[i]);
+    }
+    return result;
+  }
+
+  /// Formats byte count into human-readable string (B, KB, MB, GB).
   static String formatBytes(int bytes) {
     if (bytes <= 0) return '0 B';
     const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];

@@ -179,4 +179,40 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get categoryOther => 'أخرى';
+
+  @override
+  String get sloganNeverStartFromZero => 'ما بنبدأ من الصفر';
+
+  @override
+  String get dataBudget => 'ميزانية البيانات';
+
+  @override
+  String get freeWindows => 'الساعات المجانية';
+
+  @override
+  String get nearbyShare => 'شارك بالقرب';
+
+  @override
+  String get batchAdd => 'إضافة دفعة روابط';
+
+  @override
+  String get integrityVerification => 'فحص سلامة الملف';
+
+  @override
+  String get resilienceInsights => 'رؤى الصمود';
+
+  @override
+  String get preservedData => 'بيانات تم إنقاذها';
+
+  @override
+  String get recoveredDrops => 'انقطاعات تم تجاوزها';
+
+  @override
+  String get mirrors => 'روابط بديلة (Mirrors)';
+
+  @override
+  String get threads => 'خيوط التحميل';
+
+  @override
+  String get easternDigits => 'الأرقام المشرقية (١، ٢، ٣)';
 }

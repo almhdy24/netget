@@ -21,6 +21,7 @@ class AppSettings {
   final bool budgetHardStop;
   final List<FreeWindow> freeWindows;
   final NetworkPolicy defaultNetworkPolicy;
+  final bool useEasternArabicDigits;
 
   const AppSettings({
     this.themeMode = ThemeMode.system,
@@ -41,6 +42,7 @@ class AppSettings {
     this.budgetHardStop = true,
     this.freeWindows = const [],
     this.defaultNetworkPolicy = NetworkPolicy.anyNetwork,
+    this.useEasternArabicDigits = false,
   });
 
   AppSettings copyWith({
@@ -62,6 +64,7 @@ class AppSettings {
     bool? budgetHardStop,
     List<FreeWindow>? freeWindows,
     NetworkPolicy? defaultNetworkPolicy,
+    bool? useEasternArabicDigits,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -85,6 +88,8 @@ class AppSettings {
       budgetHardStop: budgetHardStop ?? this.budgetHardStop,
       freeWindows: freeWindows ?? this.freeWindows,
       defaultNetworkPolicy: defaultNetworkPolicy ?? this.defaultNetworkPolicy,
+      useEasternArabicDigits:
+          useEasternArabicDigits ?? this.useEasternArabicDigits,
     );
   }
 
@@ -107,6 +112,7 @@ class AppSettings {
     'budgetHardStop': budgetHardStop,
     'freeWindows': freeWindows.map((w) => w.toJson()).toList(),
     'defaultNetworkPolicy': defaultNetworkPolicy.name,
+    'useEasternArabicDigits': useEasternArabicDigits,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -160,6 +166,7 @@ class AppSettings {
       budgetHardStop: json['budgetHardStop'] as bool? ?? true,
       freeWindows: freeWindowsList,
       defaultNetworkPolicy: parsedPolicy,
+      useEasternArabicDigits: json['useEasternArabicDigits'] as bool? ?? false,
     );
   }
 }
