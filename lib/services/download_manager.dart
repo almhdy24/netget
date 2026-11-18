@@ -397,6 +397,7 @@ class DownloadManager extends ChangeNotifier {
     if (_speedMode != newSettings.speedMode) {
       setSpeedMode(newSettings.speedMode);
     }
+    _startBudgetTimer();
     evaluatePolicyAndWindows();
     notifyListeners();
   }
@@ -615,6 +616,13 @@ class DownloadManager extends ChangeNotifier {
 
   void _startBudgetTimer() {
     _budgetTimer?.cancel();
+    _budgetTimer = null;
+    final hasLimits =
+        (_settings.monthlyBudgetBytes != null &&
+            _settings.monthlyBudgetBytes! > 0) ||
+        _settings.freeWindows.isNotEmpty;
+    if (!hasLimits) return;
+
     _budgetTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       evaluatePolicyAndWindows();
     });

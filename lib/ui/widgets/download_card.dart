@@ -10,6 +10,7 @@ import '../../models/download_task.dart';
 import '../../services/download_manager.dart';
 import '../details/download_details_screen.dart';
 import 'nearby_share_sheet.dart';
+import 'thread_bar.dart';
 
 class DownloadCard extends StatelessWidget {
   final DownloadTask task;
@@ -937,6 +938,19 @@ class DownloadCard extends StatelessWidget {
     DownloadTask currentTask,
     Color statusColor,
   ) {
+    if (currentTask.segments.isNotEmpty &&
+        currentTask.totalBytes > 0 &&
+        (currentTask.status == DownloadStatus.downloading ||
+            currentTask.status == DownloadStatus.paused)) {
+      return ThreadBar(
+        segments: currentTask.segments,
+        totalBytes: currentTask.totalBytes,
+        downloadedBytes: currentTask.downloadedBytes,
+        isDownloading: currentTask.status == DownloadStatus.downloading,
+        height: 4.0,
+      );
+    }
+
     final progress = currentTask.status.isCompleted
         ? 1.0
         : (currentTask.status.isFailed || currentTask.status.isCancelled)

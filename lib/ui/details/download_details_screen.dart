@@ -9,6 +9,7 @@ import '../../services/analytics_service.dart';
 import '../../services/download_manager.dart';
 import 'segment_map_painter.dart';
 import 'speed_graph_painter.dart';
+import '../widgets/connection_pulse.dart';
 
 /// Classic IDM-style download properties screen with dedicated tabs:
 /// [General], [Segments], [Speed Graph], [Log].
@@ -313,21 +314,30 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
             task.errorMessage?.contains('في انتظار الشبكة') == true)) {
       label = 'Waiting for network';
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(3),
-        border: Border.all(color: color.withValues(alpha: 0.3), width: 0.8),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: color,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (task.status == DownloadStatus.downloading) ...[
+          ConnectionPulse(isActive: true, color: color, size: 8),
+          const SizedBox(width: 4),
+        ],
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: color.withValues(alpha: 0.3), width: 0.8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 

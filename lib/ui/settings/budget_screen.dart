@@ -6,6 +6,7 @@ import '../../models/app_settings.dart';
 import '../../models/data_budget.dart';
 import '../../services/analytics_service.dart';
 import '../../services/download_manager.dart';
+import '../widgets/budget_ring.dart';
 
 /// Screen for managing monthly mobile data budget and free window night bundles.
 class DataBudgetScreen extends StatefulWidget {
@@ -343,6 +344,39 @@ class _DataBudgetScreenState extends State<DataBudgetScreen> {
                     style: TextStyle(fontSize: 12, color: colorScheme.outline),
                   ),
               ],
+            ),
+            const SizedBox(height: 16),
+            Center(
+              child: BudgetRing(
+                countedBytes: summary?.countedBytes ?? 0,
+                freeBytes: summary?.freeBytes ?? 0,
+                limitBytes: budgetBytes,
+                size: 130,
+                strokeWidth: 10,
+                centerChild: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      budgetBytes > 0
+                          ? '${percent.toStringAsFixed(1)}%'
+                          : NetGetUtils.formatBytes(summary?.countedBytes ?? 0),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                    Text(
+                      budgetBytes > 0
+                          ? (isArabic ? 'مستهلك' : 'Used')
+                          : (isArabic ? 'هاتف' : 'Mobile'),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.outline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             ClipRRect(

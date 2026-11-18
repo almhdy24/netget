@@ -24,6 +24,7 @@ import 'widgets/download_status_footer.dart';
 import 'widgets/empty_state_view.dart';
 import 'widgets/notification_permission_banner.dart';
 import 'widgets/selection_action_bar.dart';
+import 'widgets/thread_empty_state.dart';
 
 enum _FilterTab { all, active, completed, queued, paused, failed }
 
@@ -430,6 +431,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     DownloadStatusFooter(manager: widget.manager),
                   ],
                 ),
+                floatingActionButton: !isWideScreen && !_isSelectionMode
+                    ? FloatingActionButton.extended(
+                        onPressed: () => _showAddSheet(),
+                        icon: const Icon(Icons.add),
+                        label: Text(
+                          Directionality.of(context) == TextDirection.rtl
+                              ? 'إضافة تحميل'
+                              : 'Add Download',
+                        ),
+                      )
+                    : null,
               );
             },
           ),
@@ -673,6 +685,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     List<DownloadTask> filteredTasks,
   ) {
     if (filteredTasks.isEmpty) {
+      if (_searchQuery.isEmpty && widget.manager.tasks.isEmpty) {
+        return ThreadEmptyState(onAddPressed: () => _showAddSheet());
+      }
       return EmptyStateView(
         icon: Icons.inbox_outlined,
         title: _searchQuery.isNotEmpty
