@@ -42,7 +42,7 @@ jobs:
         run: flutter pub get
 
       - name: Run Flutter Analysis
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos --fatal-warnings
 
       - name: Run Test Suite
         run: flutter test

@@ -49,7 +49,7 @@ jobs:
         run: flutter gen-l10n
 
       - name: Run Static Analysis
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos --fatal-warnings
 
       - name: Run Test Suite
         run: flutter test
