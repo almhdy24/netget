@@ -18,11 +18,23 @@ class StatisticsScreen extends StatefulWidget {
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
+  int _freeWindowBytes = 0;
+
   @override
   void initState() {
     super.initState();
     AnalyticsService.screenView('statistics');
     AnalyticsService.trackStatsViewed(view: 'reports_screen');
+    _loadFreeWindowStats();
+  }
+
+  Future<void> _loadFreeWindowStats() async {
+    final bytes = await widget.manager.budgetService.getTotalFreeWindowUsage();
+    if (mounted) {
+      setState(() {
+        _freeWindowBytes = bytes;
+      });
+    }
   }
 
   @override
@@ -44,6 +56,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     final totalDownloadedBytes = tasks.fold<int>(
       0,
       (sum, t) => sum + t.downloadedBytes,
+    );
+    final totalPreservedBytes = tasks.fold<int>(
+      0,
+      (sum, t) => sum + t.bytesPreservedByResume,
+    );
+    final totalInterruptionsRecovered = tasks.fold<int>(
+      0,
+      (sum, t) => sum + t.interruptionsRecovered,
     );
 
     final successRate = totalTasks > 0
@@ -148,7 +168,97 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
+
+          // Honest Insights Card: "ما بنبدأ من الصفر — وفرنا لك"
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                width: 1.2,
+              ),
+            ),
+            color: theme.colorScheme.primary.withValues(alpha: 0.05),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.shield_outlined,
+                        size: 20,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isArabic
+                            ? 'رؤى الصمود — ما بنبدأ من الصفر'
+                            : 'Resilience Insights — Never Start from Zero',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildInsightItem(
+                          context,
+                          label: isArabic ? 'وفر الاستئناف' : 'Resumed Savings',
+                          value: NetGetUtils.formatBytes(totalPreservedBytes),
+                          subtitle: isArabic
+                              ? 'بيانات تم إنقاذها'
+                              : 'Saved from start',
+                          icon: Icons.savings_outlined,
+                        ),
+                      ),
+                      Container(
+                        height: 50,
+                        width: 1,
+                        color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                      ),
+                      Expanded(
+                        child: _buildInsightItem(
+                          context,
+                          label: isArabic
+                              ? 'انقطاعات تم تجاوزها'
+                              : 'Recovered Drops',
+                          value: '$totalInterruptionsRecovered',
+                          subtitle: isArabic
+                              ? 'تعافى تلقائياً'
+                              : 'Auto-resumed',
+                          icon: Icons.sync_problem_rounded,
+                        ),
+                      ),
+                      Container(
+                        height: 50,
+                        width: 1,
+                        color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                      ),
+                      Expanded(
+                        child: _buildInsightItem(
+                          context,
+                          label: isArabic
+                              ? 'وفر الليل المجاني'
+                              : 'Free Window Data',
+                          value: NetGetUtils.formatBytes(_freeWindowBytes),
+                          subtitle: isArabic ? 'خارج الباقة' : 'Off-peak data',
+                          icon: Icons.nightlight_round,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // 7-Day Activity Chart Card
           Card(
@@ -476,6 +586,52 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       default:
         return 'Sun';
     }
+  }
+
+  Widget _buildInsightItem(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.primary),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: NetGetUtils.tabularStyle(
+              TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 9,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

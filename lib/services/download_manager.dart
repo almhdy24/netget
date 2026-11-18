@@ -15,6 +15,7 @@ import '../models/download_status.dart';
 import '../models/download_task.dart';
 import 'analytics_service.dart';
 import 'data_budget_service.dart';
+import 'integrity_service.dart';
 import 'multi_connection_downloader.dart';
 import 'storage_service.dart';
 
@@ -95,6 +96,7 @@ class DownloadManager extends ChangeNotifier {
   final Future<Directory> Function()? _downloadsDirResolver;
   final StorageService _storageService;
   final DataBudgetService _budgetService;
+  final IntegrityService _integrityService;
   AppSettings _settings;
   final bool autoResumeInterrupted;
 
@@ -127,13 +129,20 @@ class DownloadManager extends ChangeNotifier {
   };
   final Map<String, Timer> _networkRetryTimers = {};
 
+  /// Retrieves a task by id from the memory store.
+  DownloadTask? getTask(String id) => _store.getById(id);
+
   /// Retrieves a task-specific ValueNotifier without mutating state in build or creating placeholder tasks.
   ValueNotifier<DownloadTask>? getTaskNotifier(String taskId) =>
       _store.getNotifier(taskId);
 
   @visibleForTesting
   void updateTaskForTesting(DownloadTask task) {
-    _store.update(task.id, (_) => task, notifyAggregate: true);
+    if (_store.contains(task.id)) {
+      _store.update(task.id, (_) => task, notifyAggregate: true);
+    } else {
+      _store.add(task, notifyAggregate: true);
+    }
   }
 
   /// Emits a progress tick for a task, updating its in-memory state and notifying
@@ -353,6 +362,7 @@ class DownloadManager extends ChangeNotifier {
     Future<Directory> Function()? downloadsDirResolver,
     StorageService? storageService,
     DataBudgetService? budgetService,
+    IntegrityService? integrityService,
     AppSettings settings = const AppSettings(),
     this.autoResumeInterrupted = true,
   }) : _repository = repository,
@@ -360,6 +370,8 @@ class DownloadManager extends ChangeNotifier {
        _downloadsDirResolver = downloadsDirResolver,
        _storageService = storageService ?? StorageService.instance,
        _budgetService = budgetService ?? DataBudgetService(),
+       _integrityService =
+           integrityService ?? IntegrityService(clientFactory: clientFactory),
        _settings = settings {
     _speedMode = settings.speedMode;
     _store = TaskStore(
@@ -377,6 +389,7 @@ class DownloadManager extends ChangeNotifier {
 
   AppSettings get settings => _settings;
   DataBudgetService get budgetService => _budgetService;
+  IntegrityService get integrityService => _integrityService;
 
   /// Updates runtime settings, adjusting speed limits, concurrency, and evaluating data budget rules.
   void updateSettings(AppSettings newSettings) {
@@ -1089,6 +1102,8 @@ class DownloadManager extends ChangeNotifier {
     _taskBaseElapsedSeconds[id] = task.elapsedSeconds;
     _taskStartTimes.remove(id);
 
+    final wasInterrupted = task.status.isFailed || task.pauseReason != null;
+
     _store.update(
       id,
       (t) => t.copyWith(
@@ -1096,6 +1111,9 @@ class DownloadManager extends ChangeNotifier {
         clearError: true,
         clearPauseReason: true,
         speedBytesPerSec: 0.0,
+        interruptionsRecovered: wasInterrupted
+            ? t.interruptionsRecovered + 1
+            : t.interruptionsRecovered,
       ),
       notifyAggregate: true,
     );
@@ -1521,6 +1539,14 @@ class DownloadManager extends ChangeNotifier {
           );
         }
 
+        if (existingBytes > 0 &&
+            currentTask.bytesPreservedByResume < existingBytes) {
+          _store.update(
+            taskId,
+            (t) => t.copyWith(bytesPreservedByResume: existingBytes),
+          );
+        }
+
         final uri = Uri.parse(currentTask.url);
 
         // Unified engine: all downloads route through MultiConnectionDownloader
@@ -1632,6 +1658,7 @@ class DownloadManager extends ChangeNotifier {
             notifyAggregate: true,
           )!;
           logEvent(taskId, 'INFO', 'Download completed successfully!');
+          unawaited(_verifyTaskIntegrityOnCompletion(completedTask));
           final durationSec = completedTask.completedAt != null
               ? completedTask.completedAt!
                     .difference(completedTask.createdAt)
@@ -1860,5 +1887,101 @@ class DownloadManager extends ChangeNotifier {
       counter++;
     }
     return p.join(dirPath, '$base($counter)$ext');
+  }
+
+  Future<void> _verifyTaskIntegrityOnCompletion(DownloadTask task) async {
+    try {
+      String? expected = task.checksumExpected;
+      String alg = task.checksumAlgorithm ?? 'sha256';
+
+      if (expected == null || expected.isEmpty) {
+        final sidecar = await _integrityService.probeSidecarChecksum(task.url);
+        if (sidecar != null) {
+          expected = sidecar.checksum;
+          alg = sidecar.algorithm;
+          _store.update(
+            task.id,
+            (t) =>
+                t.copyWith(checksumExpected: expected, checksumAlgorithm: alg),
+          );
+          logEvent(task.id, 'INFO', 'Found sidecar checksum: $expected ($alg)');
+        }
+      }
+
+      final actual = await _integrityService.computeChecksum(
+        filePath: task.savePath,
+        algorithm: alg,
+      );
+
+      _store.update(
+        task.id,
+        (t) => t.copyWith(checksumActual: actual, checksumAlgorithm: alg),
+      );
+
+      if (expected != null && expected.isNotEmpty) {
+        if (IntegrityService.verify(expected, actual)) {
+          logEvent(
+            task.id,
+            'INFO',
+            'Checksum verified successfully ($alg: $actual)',
+          );
+        } else {
+          logEvent(
+            task.id,
+            'WARN',
+            'Checksum mismatch! Expected: $expected, Actual: $actual',
+          );
+        }
+      } else {
+        logEvent(task.id, 'INFO', 'Calculated checksum ($alg): $actual');
+      }
+      await saveImmediate();
+    } catch (e) {
+      logEvent(task.id, 'WARN', 'Integrity check error: $e');
+    }
+  }
+
+  /// Manually triggers or re-runs checksum verification for a task.
+  Future<bool> verifyTaskChecksum(
+    String taskId, {
+    String? expectedHash,
+    String algorithm = 'sha256',
+  }) async {
+    final task = _store.getById(taskId);
+    if (task == null) return false;
+    try {
+      final actual = await _integrityService.computeChecksum(
+        filePath: task.savePath,
+        algorithm: algorithm,
+      );
+      final resolvedExpected = expectedHash ?? task.checksumExpected;
+      _store.update(
+        taskId,
+        (t) => t.copyWith(
+          checksumActual: actual,
+          checksumExpected: resolvedExpected,
+          checksumAlgorithm: algorithm,
+        ),
+      );
+      await saveImmediate();
+      final isMatch = IntegrityService.verify(resolvedExpected, actual);
+      if (isMatch) {
+        logEvent(
+          taskId,
+          'INFO',
+          'Manual checksum verified ($algorithm: $actual)',
+        );
+      } else if (resolvedExpected != null && resolvedExpected.isNotEmpty) {
+        logEvent(
+          taskId,
+          'WARN',
+          'Manual checksum mismatch ($algorithm: expected $resolvedExpected, got $actual)',
+        );
+      }
+      return isMatch;
+    } catch (e) {
+      logEvent(taskId, 'ERROR', 'Manual checksum verification failed: $e');
+      return false;
+    }
   }
 }

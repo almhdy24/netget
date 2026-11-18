@@ -133,6 +133,22 @@ class DownloadTask {
     return downloadedBytes / elapsedSeconds;
   }
 
+  /// Whether actual and expected checksums match.
+  bool get isIntegrityVerified {
+    if (checksumExpected == null || checksumActual == null) return false;
+    final exp = checksumExpected!.trim().toLowerCase();
+    final act = checksumActual!.trim().toLowerCase();
+    return exp.isNotEmpty && exp == act;
+  }
+
+  /// Whether checksum verification failed (both exist but do not match).
+  bool get hasChecksumMismatch {
+    if (checksumExpected == null || checksumActual == null) return false;
+    final exp = checksumExpected!.trim().toLowerCase();
+    final act = checksumActual!.trim().toLowerCase();
+    return exp.isNotEmpty && act.isNotEmpty && exp != act;
+  }
+
   static const Object _sentinel = Object();
 
   DownloadTask copyWith({

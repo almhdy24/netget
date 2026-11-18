@@ -519,6 +519,81 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
                   task.lastModified ?? '--',
                 ),
               ],
+              if (task.bytesPreservedByResume > 0 ||
+                  task.interruptionsRecovered > 0) ...[
+                const Divider(height: 1),
+                _buildTwoColRow(
+                  'Saved by resume',
+                  NetGetUtils.formatBytes(task.bytesPreservedByResume),
+                  'Recovered drops',
+                  '${task.interruptionsRecovered}',
+                ),
+              ],
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      task.isIntegrityVerified
+                          ? Icons.verified_user
+                          : (task.hasChecksumMismatch
+                                ? Icons.gpp_bad
+                                : Icons.security),
+                      size: 16,
+                      color: task.isIntegrityVerified
+                          ? Colors.green
+                          : (task.hasChecksumMismatch
+                                ? Colors.red
+                                : theme.colorScheme.primary),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            task.isIntegrityVerified
+                                ? 'Integrity Verified (${task.checksumAlgorithm ?? 'sha256'})'
+                                : (task.hasChecksumMismatch
+                                      ? 'Checksum Mismatch Warning!'
+                                      : (task.checksumActual != null
+                                            ? 'Calculated ${task.checksumAlgorithm ?? 'sha256'}'
+                                            : 'Checksum & Integrity')),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: task.hasChecksumMismatch
+                                  ? Colors.red
+                                  : null,
+                            ),
+                          ),
+                          if (task.checksumActual != null)
+                            Text(
+                              task.checksumActual!,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontFamily: 'monospace',
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.check_circle_outline, size: 14),
+                      label: Text(
+                        task.checksumActual == null ? 'Verify' : 'Re-verify',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      onPressed: () => _promptVerifyChecksum(context, task),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -556,6 +631,88 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
             child: const Text('Add'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _promptVerifyChecksum(
+    BuildContext context,
+    DownloadTask task,
+  ) async {
+    final expectedController = TextEditingController(
+      text: task.checksumExpected ?? '',
+    );
+    String selectedAlgorithm = task.checksumAlgorithm ?? 'sha256';
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Verify Checksum'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: selectedAlgorithm,
+                decoration: const InputDecoration(
+                  labelText: 'Algorithm',
+                  isDense: true,
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'sha256', child: Text('SHA-256')),
+                  DropdownMenuItem(value: 'sha1', child: Text('SHA-1')),
+                  DropdownMenuItem(value: 'md5', child: Text('MD5')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() => selectedAlgorithm = val);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: expectedController,
+                decoration: const InputDecoration(
+                  labelText: 'Expected Checksum (optional)',
+                  hintText: 'Paste expected hash...',
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                final expected = expectedController.text.trim();
+                final isMatch = await widget.manager.verifyTaskChecksum(
+                  task.id,
+                  expectedHash: expected.isNotEmpty ? expected : null,
+                  algorithm: selectedAlgorithm,
+                );
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isMatch
+                            ? 'Checksum matched successfully!'
+                            : (expected.isNotEmpty
+                                  ? 'Checksum mismatch warning!'
+                                  : 'Checksum calculated successfully!'),
+                      ),
+                    ),
+                  );
+                }
+              },
+              child: const Text('Calculate / Verify'),
+            ),
+          ],
+        ),
       ),
     );
   }

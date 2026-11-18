@@ -172,6 +172,25 @@ class DataBudgetService {
     );
   }
 
+  /// Returns the total historical bytes downloaded during free night windows.
+  Future<int> getTotalFreeWindowUsage() async {
+    try {
+      final Database db = _dbResolver != null
+          ? await _dbResolver()
+          : await SqliteDownloadRepository().database;
+
+      final List<Map<String, Object?>> rows = await db.rawQuery('''
+        SELECT SUM(bytes) as sum_bytes
+        FROM usage_ledger
+        WHERE network_type = 'free_mobile'
+      ''');
+      if (rows.isNotEmpty) {
+        return (rows.first['sum_bytes'] as int?) ?? 0;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
   /// Evaluates whether a download task is allowed to run given its network policy and current network/budget.
   Future<NetworkCheckResult> checkAllowed({
     required NetworkPolicy policy,
