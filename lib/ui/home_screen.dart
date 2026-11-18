@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/constants.dart';
+import '../core/utils.dart';
 import '../data/settings_repository.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
@@ -9,6 +11,7 @@ import '../services/notification_permission_service.dart';
 import 'details/download_details_screen.dart';
 import 'dialogs/about_dialog.dart';
 import 'dialogs/analytics_prompt_dialog.dart';
+import 'dialogs/batch_add_dialog.dart';
 import 'dialogs/queue_scheduler_dialog.dart';
 import 'dialogs/theme_dialog.dart';
 import 'settings/settings_dialog.dart';
@@ -44,7 +47,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   _FilterTab _selectedTab = _FilterTab.all;
   DownloadCategory _selectedCategory = DownloadCategory.all;
   _SortOption _sortOption = _SortOption.dateDesc;
@@ -58,10 +61,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String? _selectedTaskId;
   late final NotificationPermissionService _permissionService;
+  String? _lastCheckedClipboard;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     AnalyticsService.screenView('home');
     _permissionService =
         widget.permissionService ?? NotificationPermissionService();
@@ -70,7 +75,15 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted && widget.settingsRepository != null) {
         showFirstRunAnalyticsPrompt(context, widget.settingsRepository!);
       }
+      _checkClipboard();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkClipboard();
+    }
   }
 
   void _onPermissionChanged() {
@@ -79,9 +92,72 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _permissionService.removeListener(_onPermissionChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkClipboard() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim();
+      if (text == null || text.isEmpty) return;
+      if (text == _lastCheckedClipboard) return;
+      _lastCheckedClipboard = text;
+
+      final lines = text
+          .split(RegExp(r'[\r\n]+'))
+          .map((l) => l.trim())
+          .where((l) => l.startsWith('http://') || l.startsWith('https://'))
+          .toList();
+
+      if (lines.length > 1) {
+        if (!mounted) return;
+        final isRtl = Directionality.of(context) == TextDirection.rtl;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isRtl
+                  ? 'روابط متعددة في الحافظة (${lines.length} رابط)'
+                  : 'Multiple links in clipboard (${lines.length} URLs)',
+            ),
+            action: SnackBarAction(
+              label: isRtl ? 'إضافة دفعة' : 'Batch Add',
+              onPressed: () => _showBatchAddDialog(initialText: text),
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else if (lines.length == 1) {
+        final url = lines.first;
+        final fileName = NetGetUtils.extractFileNameFromUrl(url);
+        if (!mounted) return;
+        final isRtl = Directionality.of(context) == TextDirection.rtl;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isRtl
+                  ? 'رابط في الحافظة: ${NetGetUtils.middleEllipsis(fileName, maxLength: 25)}'
+                  : 'Link in clipboard: ${NetGetUtils.middleEllipsis(fileName, maxLength: 25)}',
+            ),
+            action: SnackBarAction(
+              label: isRtl ? 'تحميل' : 'Download',
+              onPressed: () => _showAddSheet(initialUrl: url),
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
+  void _showBatchAddDialog({String? initialText}) {
+    BatchAddDialog.show(
+      context,
+      manager: widget.manager,
+      initialText: initialText,
+    );
   }
 
   void _showAddSheet({String? initialUrl}) {
@@ -325,6 +401,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     DesktopToolbar(
                       manager: widget.manager,
                       onAddLink: () => _showAddSheet(),
+                      onBatchAdd: () => _showBatchAddDialog(),
                       onOpenSettings: () => SettingsDialog.show(
                         context,
                         settingsRepository: widget.settingsRepository,

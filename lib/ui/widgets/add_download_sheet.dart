@@ -9,6 +9,7 @@ import '../../models/data_budget.dart';
 import '../../models/download_task.dart';
 import '../../services/download_manager.dart';
 import '../../services/notification_permission_service.dart';
+import '../dialogs/batch_add_dialog.dart';
 
 class AddDownloadSheet extends StatefulWidget {
   final DownloadManager manager;
@@ -484,6 +485,38 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                     style: TextStyle(fontSize: 12),
                   ),
                   onPressed: _pasteFromClipboard,
+                ),
+              ),
+            ],
+            if (_urlController.text
+                    .split(RegExp(r'[\r\n]+'))
+                    .where(
+                      (s) =>
+                          s.trim().startsWith('http://') ||
+                          s.trim().startsWith('https://'),
+                    )
+                    .length >
+                1) ...[
+              const SizedBox(height: 6),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: FilledButton.tonalIcon(
+                  icon: const Icon(Icons.playlist_add_rounded, size: 16),
+                  label: Text(
+                    Directionality.of(context) == TextDirection.rtl
+                        ? 'تحويل إلى إضافة دفعة روابط'
+                        : 'Convert to Batch Add',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onPressed: () {
+                    final text = _urlController.text;
+                    Navigator.of(context).pop();
+                    BatchAddDialog.show(
+                      context,
+                      manager: widget.manager,
+                      initialText: text,
+                    );
+                  },
                 ),
               ),
             ],
