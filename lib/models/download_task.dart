@@ -1,6 +1,7 @@
 import '../core/constants.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
+import 'data_budget.dart';
 import 'download_status.dart';
 
 /// Represents a single logged event in the download's history ring buffer.
@@ -63,6 +64,10 @@ class DownloadTask {
   final String? checksumActual;
   final String? checksumAlgorithm;
   final String? pauseReason;
+  final NetworkPolicy networkPolicy;
+  final List<String> mirrors;
+  final int interruptionsRecovered;
+  final int bytesPreservedByResume;
 
   const DownloadTask({
     required this.id,
@@ -92,6 +97,10 @@ class DownloadTask {
     this.checksumActual,
     this.checksumAlgorithm,
     this.pauseReason,
+    this.networkPolicy = NetworkPolicy.anyNetwork,
+    this.mirrors = const [],
+    this.interruptionsRecovered = 0,
+    this.bytesPreservedByResume = 0,
   });
 
   /// Progress fraction from 0.0 to 1.0, or null if total size is unknown.
@@ -163,6 +172,10 @@ class DownloadTask {
     bool clearChecksumAlgorithm = false,
     Object? pauseReason = _sentinel,
     bool clearPauseReason = false,
+    NetworkPolicy? networkPolicy,
+    List<String>? mirrors,
+    int? interruptionsRecovered,
+    int? bytesPreservedByResume,
   }) {
     final String? resolvedErrorMessage;
     if (clearError) {
@@ -279,6 +292,12 @@ class DownloadTask {
       checksumActual: resolvedChecksumActual,
       checksumAlgorithm: resolvedChecksumAlgorithm,
       pauseReason: resolvedPauseReason,
+      networkPolicy: networkPolicy ?? this.networkPolicy,
+      mirrors: mirrors ?? this.mirrors,
+      interruptionsRecovered:
+          interruptionsRecovered ?? this.interruptionsRecovered,
+      bytesPreservedByResume:
+          bytesPreservedByResume ?? this.bytesPreservedByResume,
     );
   }
 
@@ -309,6 +328,10 @@ class DownloadTask {
       'checksumActual': checksumActual,
       'checksumAlgorithm': checksumAlgorithm,
       'pauseReason': pauseReason,
+      'networkPolicy': networkPolicy.name,
+      'mirrors': mirrors,
+      'interruptionsRecovered': interruptionsRecovered,
+      'bytesPreservedByResume': bytesPreservedByResume,
     };
   }
 
@@ -367,6 +390,14 @@ class DownloadTask {
       checksumActual: json['checksumActual'] as String?,
       checksumAlgorithm: json['checksumAlgorithm'] as String?,
       pauseReason: json['pauseReason'] as String?,
+      networkPolicy: NetworkPolicy.fromString(json['networkPolicy'] as String?),
+      mirrors:
+          (json['mirrors'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      interruptionsRecovered: json['interruptionsRecovered'] as int? ?? 0,
+      bytesPreservedByResume: json['bytesPreservedByResume'] as int? ?? 0,
     );
   }
 
@@ -397,7 +428,10 @@ class DownloadTask {
         other.checksumExpected == checksumExpected &&
         other.checksumActual == checksumActual &&
         other.checksumAlgorithm == checksumAlgorithm &&
-        other.pauseReason == pauseReason;
+        other.pauseReason == pauseReason &&
+        other.networkPolicy == networkPolicy &&
+        other.interruptionsRecovered == interruptionsRecovered &&
+        other.bytesPreservedByResume == bytesPreservedByResume;
   }
 
   @override

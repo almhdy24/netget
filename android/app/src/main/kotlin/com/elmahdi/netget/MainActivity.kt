@@ -241,6 +241,23 @@ class MainActivity : FlutterActivity() {
                         result.error("STATFS_FAILED", e.message, null)
                     }
                 }
+                "getNetworkType" -> {
+                    try {
+                        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                        val activeNet = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm?.activeNetwork else null
+                        val caps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm?.getNetworkCapabilities(activeNet) else null
+                        val type = when {
+                            caps == null -> "wifi"
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "wifi"
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+                            else -> "other"
+                        }
+                        result.success(type)
+                    } catch (e: Exception) {
+                        result.success("unknown")
+                    }
+                }
                 "openFile" -> {
                     val filePath = call.argument<String>("path") ?: ""
                     try {

@@ -5,23 +5,28 @@ import '../../core/constants.dart';
 import '../../data/settings_repository.dart';
 import '../../models/app_settings.dart';
 import '../../services/analytics_service.dart';
+import '../../services/download_manager.dart';
+import 'budget_screen.dart';
 import 'keep_alive_screen.dart';
 
 /// Desktop-style Preferences / Settings dialog.
 class SettingsDialog extends StatefulWidget {
   final SettingsRepository settingsRepository;
   final ValueNotifier<ThemeMode> themeModeNotifier;
+  final DownloadManager? manager;
 
   const SettingsDialog({
     super.key,
     required this.settingsRepository,
     required this.themeModeNotifier,
+    this.manager,
   });
 
   static Future<void> show(
     BuildContext context, {
     SettingsRepository? settingsRepository,
     required ValueNotifier<ThemeMode> themeModeNotifier,
+    DownloadManager? manager,
   }) {
     AnalyticsService.screenView('settings');
     return showDialog<void>(
@@ -29,6 +34,7 @@ class SettingsDialog extends StatefulWidget {
       builder: (_) => SettingsDialog(
         settingsRepository: settingsRepository ?? SettingsRepository(),
         themeModeNotifier: themeModeNotifier,
+        manager: manager,
       ),
     );
   }
@@ -60,6 +66,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   Future<void> _updateSettings(AppSettings updated) async {
     setState(() => _settings = updated);
     await widget.settingsRepository.saveSettings(updated);
+    widget.manager?.updateSettings(updated);
   }
 
   @override
@@ -227,6 +234,44 @@ class _SettingsDialogState extends State<SettingsDialog> {
                               'enabled': val,
                             });
                           } catch (_) {}
+                        },
+                      ),
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          Icons.donut_large,
+                          color: colorScheme.primary,
+                          size: 20,
+                        ),
+                        title: Text(
+                          isArabic
+                              ? 'الرصيد والساعات المجانية'
+                              : 'Data Budget & Free Windows',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: Text(
+                          isArabic
+                              ? 'ضبط سقف استهلاك الهاتف وجدولة الساعات الليلية'
+                              : 'Configure monthly data limit and free night bundle hours',
+                          style: const TextStyle(fontSize: 10.5),
+                        ),
+                        trailing: Icon(
+                          isArabic ? Icons.chevron_left : Icons.chevron_right,
+                          size: 18,
+                        ),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => DataBudgetScreen(
+                                settingsRepository: widget.settingsRepository,
+                                manager: widget.manager,
+                              ),
+                            ),
+                          );
                         },
                       ),
                       ListTile(

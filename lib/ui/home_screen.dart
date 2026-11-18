@@ -329,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         settingsRepository: widget.settingsRepository,
                         themeModeNotifier: widget.themeModeNotifier,
+                        manager: widget.manager,
                       ),
                       isSelectionMode: _isSelectionMode,
                       onDeleteSelected: _bulkDelete,

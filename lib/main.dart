@@ -72,7 +72,10 @@ void main() async {
   AnalyticsService.trackAppOpen();
 
   final repository = SqliteDownloadRepository();
-  final manager = DownloadManager(repository: repository);
+  final manager = DownloadManager(
+    repository: repository,
+    settings: initialSettings,
+  );
   await manager.init();
 
   if (initialSettings.autoResumeInterrupted) {
@@ -100,7 +103,7 @@ void downloadServiceMain() async {
   }
 
   final repository = SqliteDownloadRepository();
-  final manager = DownloadManager(repository: repository);
+  final manager = DownloadManager(repository: repository, settings: settings);
   await manager.init();
   await manager.resumeInterruptedTasks();
 }

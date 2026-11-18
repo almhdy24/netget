@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../core/constants.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
+import '../../models/data_budget.dart';
 import '../../models/download_task.dart';
 import '../../services/download_manager.dart';
 import '../../services/notification_permission_service.dart';
@@ -62,12 +63,15 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
   UrlAnalysisResult? _analysis;
   DownloadCategory _selectedCategory = DownloadCategory.other;
   int _connections = 1;
+  NetworkPolicy _selectedNetworkPolicy = NetworkPolicy.anyNetwork;
   DownloadTask? _duplicateTask;
   bool _allowDuplicateDownload = false;
 
   @override
   void initState() {
     super.initState();
+    _connections = widget.manager.settings.connectionsPerDownload;
+    _selectedNetworkPolicy = widget.manager.settings.defaultNetworkPolicy;
     final startUrl = widget.initialUrl?.trim() ?? '';
     _urlController = TextEditingController(text: startUrl);
     _nameController = TextEditingController();
@@ -205,6 +209,7 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
         resumable: _analysis?.resumable,
         etag: _analysis?.etag,
         lastModified: _analysis?.lastModified,
+        networkPolicy: _selectedNetworkPolicy,
         source: widget.initialUrl != null ? 'clipboard' : 'link',
       );
 
@@ -644,6 +649,57 @@ class _AddDownloadSheetState extends State<AddDownloadSheet> {
                     onSelectionChanged: isResumable
                         ? (sel) => setState(() => _connections = sel.first)
                         : null,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? 'سياسة الشبكة:'
+                          : 'Network Policy:',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<NetworkPolicy>(
+                    segments: [
+                      ButtonSegment(
+                        value: NetworkPolicy.anyNetwork,
+                        label: Text(
+                          Directionality.of(context) == TextDirection.rtl
+                              ? 'أي شبكة'
+                              : 'Any Net',
+                        ),
+                      ),
+                      ButtonSegment(
+                        value: NetworkPolicy.wifiOnly,
+                        label: Text(
+                          Directionality.of(context) == TextDirection.rtl
+                              ? 'واي-فاي فقط'
+                              : 'Wi-Fi Only',
+                        ),
+                      ),
+                      ButtonSegment(
+                        value: NetworkPolicy.wifiOrFreeWindow,
+                        label: Text(
+                          Directionality.of(context) == TextDirection.rtl
+                              ? 'ليلي / مجاني'
+                              : 'Night / Free',
+                        ),
+                      ),
+                    ],
+                    selected: {_selectedNetworkPolicy},
+                    onSelectionChanged: (sel) {
+                      setState(() => _selectedNetworkPolicy = sel.first);
+                    },
                   ),
                 ),
               ],

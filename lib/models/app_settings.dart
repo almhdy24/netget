@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/constants.dart';
+import 'data_budget.dart';
 
 class AppSettings {
   final ThemeMode themeMode;
@@ -14,6 +15,12 @@ class AppSettings {
   final String? defaultFolder;
   final bool autoResumeInterrupted;
   final bool autoResumeOnBoot;
+  final int? monthlyBudgetBytes;
+  final int budgetResetDay;
+  final int warningThresholdPercent;
+  final bool budgetHardStop;
+  final List<FreeWindow> freeWindows;
+  final NetworkPolicy defaultNetworkPolicy;
 
   const AppSettings({
     this.themeMode = ThemeMode.system,
@@ -28,6 +35,12 @@ class AppSettings {
     this.defaultFolder,
     this.autoResumeInterrupted = true,
     this.autoResumeOnBoot = false,
+    this.monthlyBudgetBytes,
+    this.budgetResetDay = 1,
+    this.warningThresholdPercent = 80,
+    this.budgetHardStop = true,
+    this.freeWindows = const [],
+    this.defaultNetworkPolicy = NetworkPolicy.anyNetwork,
   });
 
   AppSettings copyWith({
@@ -43,6 +56,12 @@ class AppSettings {
     String? defaultFolder,
     bool? autoResumeInterrupted,
     bool? autoResumeOnBoot,
+    int? monthlyBudgetBytes,
+    int? budgetResetDay,
+    int? warningThresholdPercent,
+    bool? budgetHardStop,
+    List<FreeWindow>? freeWindows,
+    NetworkPolicy? defaultNetworkPolicy,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -59,6 +78,13 @@ class AppSettings {
       autoResumeInterrupted:
           autoResumeInterrupted ?? this.autoResumeInterrupted,
       autoResumeOnBoot: autoResumeOnBoot ?? this.autoResumeOnBoot,
+      monthlyBudgetBytes: monthlyBudgetBytes ?? this.monthlyBudgetBytes,
+      budgetResetDay: budgetResetDay ?? this.budgetResetDay,
+      warningThresholdPercent:
+          warningThresholdPercent ?? this.warningThresholdPercent,
+      budgetHardStop: budgetHardStop ?? this.budgetHardStop,
+      freeWindows: freeWindows ?? this.freeWindows,
+      defaultNetworkPolicy: defaultNetworkPolicy ?? this.defaultNetworkPolicy,
     );
   }
 
@@ -75,6 +101,12 @@ class AppSettings {
     'defaultFolder': defaultFolder,
     'autoResumeInterrupted': autoResumeInterrupted,
     'autoResumeOnBoot': autoResumeOnBoot,
+    'monthlyBudgetBytes': monthlyBudgetBytes,
+    'budgetResetDay': budgetResetDay,
+    'warningThresholdPercent': warningThresholdPercent,
+    'budgetHardStop': budgetHardStop,
+    'freeWindows': freeWindows.map((w) => w.toJson()).toList(),
+    'defaultNetworkPolicy': defaultNetworkPolicy.name,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -96,6 +128,15 @@ class AppSettings {
       );
     }
 
+    final freeWindowsList =
+        (json['freeWindows'] as List<dynamic>?)
+            ?.map((e) => FreeWindow.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const <FreeWindow>[];
+
+    final policyStr = json['defaultNetworkPolicy'] as String?;
+    final parsedPolicy = NetworkPolicy.fromString(policyStr);
+
     return AppSettings(
       themeMode: parsedTheme,
       language: json['language'] as String? ?? 'system',
@@ -113,6 +154,12 @@ class AppSettings {
       defaultFolder: json['defaultFolder'] as String?,
       autoResumeInterrupted: json['autoResumeInterrupted'] as bool? ?? true,
       autoResumeOnBoot: json['autoResumeOnBoot'] as bool? ?? false,
+      monthlyBudgetBytes: json['monthlyBudgetBytes'] as int?,
+      budgetResetDay: json['budgetResetDay'] as int? ?? 1,
+      warningThresholdPercent: json['warningThresholdPercent'] as int? ?? 80,
+      budgetHardStop: json['budgetHardStop'] as bool? ?? true,
+      freeWindows: freeWindowsList,
+      defaultNetworkPolicy: parsedPolicy,
     );
   }
 }

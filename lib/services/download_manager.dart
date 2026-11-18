@@ -9,9 +9,12 @@ import '../core/segment_planner.dart';
 import '../core/utils.dart';
 import '../data/download_repository.dart';
 import '../data/task_store.dart';
+import '../models/app_settings.dart';
+import '../models/data_budget.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
 import 'analytics_service.dart';
+import 'data_budget_service.dart';
 import 'multi_connection_downloader.dart';
 import 'storage_service.dart';
 
@@ -91,6 +94,8 @@ class DownloadManager extends ChangeNotifier {
   final HttpClient Function()? _clientFactory;
   final Future<Directory> Function()? _downloadsDirResolver;
   final StorageService _storageService;
+  final DataBudgetService _budgetService;
+  AppSettings _settings;
   final bool autoResumeInterrupted;
 
   late final TaskStore _store;
@@ -112,6 +117,9 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, int> _taskBaseElapsedSeconds = {};
   final Map<String, QueueSchedule> _queueSchedules = {};
   Timer? _schedulerTimer;
+  Timer? _budgetTimer;
+  String _cachedNetworkType = 'wifi';
+  DateTime _lastNetworkTypeCheck = DateTime.fromMillisecondsSinceEpoch(0);
   SpeedMode _speedMode = SpeedMode.unlimited;
   final List<String> _namedQueues = [NetGetConstants.defaultQueueName];
   final Map<String, bool> _activeQueues = {
@@ -122,6 +130,11 @@ class DownloadManager extends ChangeNotifier {
   /// Retrieves a task-specific ValueNotifier without mutating state in build or creating placeholder tasks.
   ValueNotifier<DownloadTask>? getTaskNotifier(String taskId) =>
       _store.getNotifier(taskId);
+
+  @visibleForTesting
+  void updateTaskForTesting(DownloadTask task) {
+    _store.update(task.id, (_) => task, notifyAggregate: true);
+  }
 
   /// Emits a progress tick for a task, updating its in-memory state and notifying
   /// the task's ValueNotifier for immediate UI rebuild without waiting for disk throttle.
@@ -144,6 +157,12 @@ class DownloadManager extends ChangeNotifier {
           (_taskBaseElapsedSeconds[taskId] ?? task.elapsedSeconds) +
           sessionElapsed;
 
+      final prevDownloaded = task.downloadedBytes;
+      final deltaBytes = downloadedBytes - prevDownloaded;
+      if (deltaBytes > 0) {
+        _recordUsageAsync(taskId, deltaBytes);
+      }
+
       final updated = _store.update(
         taskId,
         (t) => t.copyWith(
@@ -163,9 +182,39 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
-  /// Default connections setting (default 1 preserves legacy single-stream behavior;
-  /// multi-connection engine is activated when connections > 1 and server supports ranges).
-  int defaultConnections = 1;
+  final Set<String> _startingTasks = {};
+
+  Future<void> _recordUsageAsync(String taskId, int deltaBytes) async {
+    try {
+      final now = clock();
+      if (now.difference(_lastNetworkTypeCheck).inSeconds > 2) {
+        _cachedNetworkType = await _budgetService.getNetworkType();
+        _lastNetworkTypeCheck = now;
+      }
+      final isFree = _budgetService.isFreeWindow(
+        freeWindows: _settings.freeWindows,
+        now: now,
+      );
+      final netType = _cachedNetworkType == 'wifi'
+          ? 'wifi'
+          : (isFree ? 'free_mobile' : 'mobile');
+
+      await _budgetService.recordUsage(
+        taskId: taskId,
+        bytes: deltaBytes,
+        networkType: netType,
+        timestamp: now,
+      );
+    } catch (e, st) {
+      debugPrint('recordUsageAsync error: $e\n$st');
+    }
+  }
+
+  /// Default connections setting from AppSettings.
+  int get defaultConnections => _settings.connectionsPerDownload;
+  set defaultConnections(int val) {
+    _settings = _settings.copyWith(connectionsPerDownload: val);
+  }
 
   DateTime Function() clock = DateTime.now;
   DateTime _lastSaveTime = DateTime.fromMillisecondsSinceEpoch(0);
@@ -260,8 +309,11 @@ class DownloadManager extends ChangeNotifier {
     _syncActiveDownloadsToNative();
   }
 
+  bool _isDisposed = false;
+
   /// Throttled save: max 1 save per second across progress ticks.
   void scheduleThrottledSave() {
+    if (_isDisposed) return;
     final now = clock();
     final elapsedMs = now.difference(_lastSaveTime).inMilliseconds;
     if (elapsedMs >= 1000) {
@@ -275,7 +327,7 @@ class DownloadManager extends ChangeNotifier {
       if (_saveThrottleTimer == null || !_saveThrottleTimer!.isActive) {
         final waitMs = 1000 - elapsedMs;
         _saveThrottleTimer = Timer(Duration(milliseconds: waitMs), () {
-          if (_hasPendingSave) {
+          if (_hasPendingSave && !_isDisposed) {
             _hasPendingSave = false;
             _lastSaveTime = clock();
             _repository.saveTasks(_store.tasks);
@@ -287,6 +339,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Immediate save for lifecycle state transitions (pause, cancel, complete, delete, add).
   Future<void> saveImmediate() async {
+    if (_isDisposed) return;
     _saveThrottleTimer?.cancel();
     _saveThrottleTimer = null;
     _hasPendingSave = false;
@@ -299,16 +352,40 @@ class DownloadManager extends ChangeNotifier {
     HttpClient Function()? clientFactory,
     Future<Directory> Function()? downloadsDirResolver,
     StorageService? storageService,
+    DataBudgetService? budgetService,
+    AppSettings settings = const AppSettings(),
     this.autoResumeInterrupted = true,
   }) : _repository = repository,
        _clientFactory = clientFactory,
        _downloadsDirResolver = downloadsDirResolver,
-       _storageService = storageService ?? StorageService.instance {
+       _storageService = storageService ?? StorageService.instance,
+       _budgetService = budgetService ?? DataBudgetService(),
+       _settings = settings {
+    _speedMode = settings.speedMode;
     _store = TaskStore(
-      onTasksChanged: notifyListeners,
-      onTaskPersist: (task) => _repository.saveTask(task),
-      onScheduleSave: (tasks) => scheduleThrottledSave(),
+      onTasksChanged: () {
+        if (!_isDisposed) notifyListeners();
+      },
+      onTaskPersist: (task) {
+        if (!_isDisposed) _repository.saveTask(task);
+      },
+      onScheduleSave: (tasks) {
+        if (!_isDisposed) scheduleThrottledSave();
+      },
     );
+  }
+
+  AppSettings get settings => _settings;
+  DataBudgetService get budgetService => _budgetService;
+
+  /// Updates runtime settings, adjusting speed limits, concurrency, and evaluating data budget rules.
+  void updateSettings(AppSettings newSettings) {
+    _settings = newSettings;
+    if (_speedMode != newSettings.speedMode) {
+      setSpeedMode(newSettings.speedMode);
+    }
+    evaluatePolicyAndWindows();
+    notifyListeners();
   }
 
   List<DownloadTask> get tasks => _store.tasks;
@@ -420,6 +497,7 @@ class DownloadManager extends ChangeNotifier {
     _store.init(loaded);
     _isInitialized = true;
     _startSchedulerTimer();
+    _startBudgetTimer();
     _initNativeBridge();
     notifyListeners();
   }
@@ -452,6 +530,10 @@ class DownloadManager extends ChangeNotifier {
               pauseAll();
               return;
             }
+            if (event['event'] == 'networkChanged') {
+              evaluatePolicyAndWindows();
+              return;
+            }
             final taskId = event['taskId'] as String?;
             final downloaded = (event['downloadedBytes'] as num?)?.toInt();
             final speed = (event['speedBytesPerSec'] as num?)?.toDouble();
@@ -469,6 +551,60 @@ class DownloadManager extends ChangeNotifier {
         }, onError: (_) {});
       } catch (_) {}
     }
+  }
+
+  /// Evaluates active and paused tasks against data budget and network policies.
+  /// Auto-pauses tasks that are no longer allowed (e.g. WiFi-only on cellular or outside free window),
+  /// and auto-resumes tasks that were paused by budget/network when conditions are met.
+  Future<void> evaluatePolicyAndWindows() async {
+    final netType = await _budgetService.getNetworkType();
+    _cachedNetworkType = netType;
+    _lastNetworkTypeCheck = clock();
+    final isWifi = netType == 'wifi';
+    final now = clock();
+
+    final downloading = tasks
+        .where((t) => t.status == DownloadStatus.downloading)
+        .toList();
+    for (final task in downloading) {
+      final check = await _budgetService.checkAllowed(
+        policy: task.networkPolicy,
+        settings: _settings,
+        isWifiOverride: isWifi,
+        now: now,
+      );
+      if (!check.isAllowed) {
+        await pauseDownload(task.id, reason: check.pauseReason);
+      }
+    }
+
+    final pausedForBudget = tasks
+        .where(
+          (t) =>
+              t.status == DownloadStatus.paused &&
+              (t.pauseReason == 'network' || t.pauseReason == 'budget'),
+        )
+        .toList();
+    for (final task in pausedForBudget) {
+      final check = await _budgetService.checkAllowed(
+        policy: task.networkPolicy,
+        settings: _settings,
+        isWifiOverride: isWifi,
+        now: now,
+      );
+      if (check.isAllowed) {
+        await resumeDownload(task.id);
+      }
+    }
+
+    _processQueue();
+  }
+
+  void _startBudgetTimer() {
+    _budgetTimer?.cancel();
+    _budgetTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      evaluatePolicyAndWindows();
+    });
   }
 
   /// Performs quick link analysis (HEAD / Range: 0-0) without starting download.
@@ -552,6 +688,8 @@ class DownloadManager extends ChangeNotifier {
     bool? resumable,
     String? etag,
     String? lastModified,
+    NetworkPolicy? networkPolicy,
+    List<String>? mirrors,
     String source = 'link',
   }) async {
     final cleanUrl = url.trim();
@@ -614,6 +752,8 @@ class DownloadManager extends ChangeNotifier {
       referrer: referrer,
       queueName: queueName ?? NetGetConstants.defaultQueueName,
       segments: initialSegments,
+      networkPolicy: networkPolicy ?? _settings.defaultNetworkPolicy,
+      mirrors: mirrors ?? const [],
     );
 
     logEvent(id, 'INFO', 'Download added: $fileName');
@@ -815,13 +955,14 @@ class DownloadManager extends ChangeNotifier {
   }
 
   /// Pauses an active downloading task.
-  Future<void> pauseDownload(String id) async {
+  Future<void> pauseDownload(String id, {String? reason}) async {
     _networkRetryTimers.remove(id)?.cancel();
     final task = _store.getById(id);
     if (task == null) return;
 
     if (task.status != DownloadStatus.downloading &&
-        task.status != DownloadStatus.queued) {
+        task.status != DownloadStatus.queued &&
+        task.status != DownloadStatus.paused) {
       return;
     }
 
@@ -845,11 +986,20 @@ class DownloadManager extends ChangeNotifier {
 
     _store.update(
       id,
-      (t) => t.copyWith(status: DownloadStatus.paused, speedBytesPerSec: 0.0),
+      (t) => t.copyWith(
+        status: DownloadStatus.paused,
+        speedBytesPerSec: 0.0,
+        pauseReason: reason,
+        clearPauseReason: reason == null,
+      ),
       notifyAggregate: true,
     );
 
-    logEvent(id, 'INFO', 'Download paused');
+    logEvent(
+      id,
+      'INFO',
+      reason != null ? 'Download paused ($reason)' : 'Download paused',
+    );
     await saveImmediate();
     AnalyticsService.trackDownloadPaused();
 
@@ -875,6 +1025,7 @@ class DownloadManager extends ChangeNotifier {
       (t) => t.copyWith(
         status: DownloadStatus.queued,
         clearError: true,
+        clearPauseReason: true,
         speedBytesPerSec: 0.0,
       ),
       notifyAggregate: true,
@@ -1122,7 +1273,9 @@ class DownloadManager extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
     _schedulerTimer?.cancel();
+    _budgetTimer?.cancel();
     _saveThrottleTimer?.cancel();
     for (final t in _networkRetryTimers.values) {
       t.cancel();
@@ -1147,8 +1300,7 @@ class DownloadManager extends ChangeNotifier {
         .where((t) => t.status == DownloadStatus.downloading)
         .length;
 
-    final availableSlots =
-        NetGetConstants.maxConcurrentDownloads - downloadingCount;
+    final availableSlots = _settings.maxConcurrent - downloadingCount;
     if (availableSlots <= 0) return;
 
     final queuedTasks = tasks
@@ -1183,317 +1335,356 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> _startDownloading(String taskId) async {
-    final task = _store.getById(taskId);
-    if (task == null || task.status == DownloadStatus.downloading) return;
-
-    final currentTask = _store.update(
-      taskId,
-      (t) => t.copyWith(
-        status: DownloadStatus.downloading,
-        speedBytesPerSec: 0.0,
-        clearError: true,
-      ),
-      notifyAggregate: true,
-    )!;
-    logEvent(taskId, 'PROGRESS', 'Connecting to server...');
-    AnalyticsService.trackDownloadStarted(
-      connectionCount: currentTask.connectionCount,
-    );
-
-    final ctx = _ActiveDownloadContext();
-    _activeContexts[taskId] = ctx;
-
-    HttpClient? client;
+    if (_startingTasks.contains(taskId)) return;
+    _startingTasks.add(taskId);
     try {
-      client = _createHttpClient();
-      final file = File(currentTask.savePath);
-      int existingBytes = 0;
-      if (await file.exists()) {
-        existingBytes = await file.length();
-      }
+      final task = _store.getById(taskId);
+      if (task == null || task.status == DownloadStatus.downloading) return;
 
-      // Restart / Resume verification:
-      // A file may be preallocated on disk to totalBytes with holes.
-      // NEVER mark completed or assume done solely based on file.length() >= totalBytes.
-      // A task is only completed if its status is already completed, or all segments are verified complete.
-      final areSegmentsVerifiedComplete =
-          currentTask.segments.isNotEmpty &&
-          currentTask.segments.every((s) => s.isFinished && s.isCompleted) &&
-          currentTask.downloadedBytes >= currentTask.totalBytes &&
-          currentTask.totalBytes > 0;
-
-      if (currentTask.status == DownloadStatus.completed ||
-          areSegmentsVerifiedComplete) {
-        _store.update(
-          taskId,
-          (t) => t.copyWith(
-            downloadedBytes: t.totalBytes,
-            status: DownloadStatus.completed,
-            speedBytesPerSec: 0.0,
-            completedAt: t.completedAt ?? DateTime.now(),
-          ),
-          notifyAggregate: true,
-        );
-        logEvent(taskId, 'INFO', 'File already verified complete');
-        _activeContexts.remove(taskId);
-        client.close(force: true);
-        await saveImmediate();
-        _processQueue();
-        return;
-      }
-
-      // If a multi-connection task has preallocated existing bytes on disk but segment metadata
-      // is missing, we cannot know which byte ranges are actual data vs unwritten holes.
-      // Restart cleanly from byte 0 to guarantee file integrity.
-      if (currentTask.connectionCount > 1 &&
-          currentTask.segments.isEmpty &&
-          existingBytes > 0) {
-        logEvent(
-          taskId,
-          'WARN',
-          'Task has preallocated file with missing segment records. Restarting from byte 0.',
-        );
-        try {
-          final raf = await file.open(mode: FileMode.write);
-          await raf.truncate(0);
-          await raf.close();
-        } catch (_) {}
-        existingBytes = 0;
-        _store.update(
-          taskId,
-          (t) => t.copyWith(downloadedBytes: 0, segments: []),
-        );
-      }
-
-      final uri = Uri.parse(currentTask.url);
-
-      // Unified engine: all downloads route through MultiConnectionDownloader
-      final multiDownloader = MultiConnectionDownloader(
-        id: taskId,
-        uri: uri,
-        savePath: currentTask.savePath,
+      final currentTask = _store.update(
+        taskId,
+        (t) => t.copyWith(
+          status: DownloadStatus.downloading,
+          speedBytesPerSec: 0.0,
+          clearError: true,
+        ),
+        notifyAggregate: true,
+      );
+      if (currentTask == null) return;
+      logEvent(taskId, 'PROGRESS', 'Connecting to server...');
+      AnalyticsService.trackDownloadStarted(
         connectionCount: currentTask.connectionCount,
-        speedLimitBytesPerSec: _speedMode.bytesPerSec,
-        etag: currentTask.etag,
-        lastModified: currentTask.lastModified,
-        initialSegments: currentTask.segments,
-        clientFactory: () => _createHttpClient(),
-        onProgress: (downloaded, total, speed, segs) {
-          emitProgressTick(
-            taskId,
-            downloadedBytes: downloaded,
-            totalBytes: total,
-            speedBytesPerSec: speed,
-            segments: segs,
-          );
-        },
-        onCheckpoint: (segs) async {
-          final flushedBytes = segs.fold<int>(
-            0,
-            (sum, s) => sum + s.downloadedBytes,
-          );
-          _store.update(
-            taskId,
-            (t) => t.copyWith(segments: segs, downloadedBytes: flushedBytes),
-          );
-          scheduleThrottledSave();
-        },
-        onLog: (lvl, msg) {
-          logEvent(taskId, lvl, msg);
-        },
       );
 
-      ctx.multiDownloader = multiDownloader;
+      final check = await _budgetService.checkAllowed(
+        policy: currentTask.networkPolicy,
+        settings: _settings,
+        now: clock(),
+      );
 
-      await multiDownloader.start();
-      if (ctx.isPaused ||
-          ctx.isCancelled ||
-          multiDownloader.isPaused ||
-          multiDownloader.isCancelled) {
+      // Re-check task status after the async checkAllowed await.
+      // If the task was cancelled, paused, or deleted during the await, abort start.
+      final freshTask = _store.getById(taskId);
+      if (freshTask == null || freshTask.status != DownloadStatus.downloading) {
+        return;
+      }
+
+      if (!check.isAllowed) {
+        _store.update(
+          taskId,
+          (t) => t.copyWith(
+            status: DownloadStatus.paused,
+            pauseReason: check.pauseReason,
+            speedBytesPerSec: 0.0,
+          ),
+          notifyAggregate: true,
+        );
+        logEvent(
+          taskId,
+          'PAUSED',
+          'Download paused due to network policy (${check.pauseReason})',
+        );
+        return;
+      }
+
+      final ctx = _ActiveDownloadContext();
+      _activeContexts[taskId] = ctx;
+
+      HttpClient? client;
+      try {
+        client = _createHttpClient();
+        final file = File(currentTask.savePath);
+        int existingBytes = 0;
+        if (await file.exists()) {
+          existingBytes = await file.length();
+        }
+
+        // Restart / Resume verification:
+        // A file may be preallocated on disk to totalBytes with holes.
+        // NEVER mark completed or assume done solely based on file.length() >= totalBytes.
+        // A task is only completed if its status is already completed, or all segments are verified complete.
+        final areSegmentsVerifiedComplete =
+            currentTask.segments.isNotEmpty &&
+            currentTask.segments.every((s) => s.isFinished && s.isCompleted) &&
+            currentTask.downloadedBytes >= currentTask.totalBytes &&
+            currentTask.totalBytes > 0;
+
+        if (currentTask.status == DownloadStatus.completed ||
+            areSegmentsVerifiedComplete) {
+          _store.update(
+            taskId,
+            (t) => t.copyWith(
+              downloadedBytes: t.totalBytes,
+              status: DownloadStatus.completed,
+              speedBytesPerSec: 0.0,
+              completedAt: t.completedAt ?? DateTime.now(),
+            ),
+            notifyAggregate: true,
+          );
+          logEvent(taskId, 'INFO', 'File already verified complete');
+          _activeContexts.remove(taskId);
+          client.close(force: true);
+          await saveImmediate();
+          _processQueue();
+          return;
+        }
+
+        // If a multi-connection task has preallocated existing bytes on disk but segment metadata
+        // is missing, we cannot know which byte ranges are actual data vs unwritten holes.
+        // Restart cleanly from byte 0 to guarantee file integrity.
+        if (currentTask.connectionCount > 1 &&
+            currentTask.segments.isEmpty &&
+            existingBytes > 0) {
+          logEvent(
+            taskId,
+            'WARN',
+            'Task has preallocated file with missing segment records. Restarting from byte 0.',
+          );
+          try {
+            final raf = await file.open(mode: FileMode.write);
+            await raf.truncate(0);
+            await raf.close();
+          } catch (_) {}
+          existingBytes = 0;
+          _store.update(
+            taskId,
+            (t) => t.copyWith(downloadedBytes: 0, segments: []),
+          );
+        }
+
+        final uri = Uri.parse(currentTask.url);
+
+        // Unified engine: all downloads route through MultiConnectionDownloader
+        final multiDownloader = MultiConnectionDownloader(
+          id: taskId,
+          uri: uri,
+          savePath: currentTask.savePath,
+          connectionCount: currentTask.connectionCount,
+          speedLimitBytesPerSec: _speedMode.bytesPerSec,
+          etag: currentTask.etag,
+          lastModified: currentTask.lastModified,
+          initialSegments: currentTask.segments,
+          clientFactory: () => _createHttpClient(),
+          onProgress: (downloaded, total, speed, segs) {
+            emitProgressTick(
+              taskId,
+              downloadedBytes: downloaded,
+              totalBytes: total,
+              speedBytesPerSec: speed,
+              segments: segs,
+            );
+          },
+          onCheckpoint: (segs) async {
+            final flushedBytes = segs.fold<int>(
+              0,
+              (sum, s) => sum + s.downloadedBytes,
+            );
+            _store.update(
+              taskId,
+              (t) => t.copyWith(segments: segs, downloadedBytes: flushedBytes),
+            );
+            scheduleThrottledSave();
+          },
+          onLog: (lvl, msg) {
+            logEvent(taskId, lvl, msg);
+          },
+        );
+
+        ctx.multiDownloader = multiDownloader;
+
+        await multiDownloader.start();
+        if (ctx.isPaused ||
+            ctx.isCancelled ||
+            multiDownloader.isPaused ||
+            multiDownloader.isCancelled) {
+          _activeContexts.remove(taskId);
+          client.close(force: true);
+          return;
+        }
+
+        final currentDownloading = _store.getById(taskId);
+        if (currentDownloading != null &&
+            currentDownloading.status == DownloadStatus.downloading) {
+          String finalSavePath = currentDownloading.savePath;
+
+          // If the download was saved to a .part file, finalize it to public location
+          if (finalSavePath.endsWith('.part')) {
+            try {
+              final targetDir = await _storageService
+                  .getPublicDownloadDirectory(
+                    category: currentDownloading.category,
+                  );
+              final targetPath = await _storageService.resolveTargetFilePath(
+                fileName:
+                    multiDownloader.suggestedFileName ??
+                    currentDownloading.fileName,
+                category: currentDownloading.category,
+                customFolderPath: targetDir.path,
+              );
+              finalSavePath = await _storageService.finalizeDownload(
+                partFilePath: currentDownloading.savePath,
+                targetFilePath: targetPath,
+                expectedBytes: multiDownloader.totalBytes > 0
+                    ? multiDownloader.totalBytes
+                    : currentDownloading.downloadedBytes,
+              );
+            } catch (e) {
+              logEvent(
+                taskId,
+                'WARN',
+                'Finalization to public directory fallback: $e',
+              );
+            }
+          }
+
+          final updatedFileName =
+              multiDownloader.suggestedFileName ?? currentDownloading.fileName;
+
+          final completedTask = _store.update(
+            taskId,
+            (t) => t.copyWith(
+              status: DownloadStatus.completed,
+              fileName: updatedFileName,
+              savePath: finalSavePath,
+              downloadedBytes: multiDownloader.totalBytes > 0
+                  ? multiDownloader.totalBytes
+                  : t.downloadedBytes,
+              totalBytes: multiDownloader.totalBytes > 0
+                  ? multiDownloader.totalBytes
+                  : t.totalBytes,
+              etag: multiDownloader.etag ?? t.etag,
+              lastModified: multiDownloader.lastModified ?? t.lastModified,
+              resumable: multiDownloader.isRangeSupported,
+              speedBytesPerSec: 0.0,
+              completedAt: DateTime.now(),
+              segments: multiDownloader.segments,
+            ),
+            notifyAggregate: true,
+          )!;
+          logEvent(taskId, 'INFO', 'Download completed successfully!');
+          final durationSec = completedTask.completedAt != null
+              ? completedTask.completedAt!
+                    .difference(completedTask.createdAt)
+                    .inSeconds
+              : 0;
+          final avgSpeed = durationSec > 0
+              ? (completedTask.downloadedBytes / durationSec).round()
+              : 0;
+          AnalyticsService.trackDownloadCompleted(
+            totalBytes: completedTask.downloadedBytes,
+            durationSeconds: durationSec,
+            avgSpeedBytesPerSec: avgSpeed,
+            category: completedTask.category.name,
+          );
+          await saveImmediate();
+          unawaited(
+            _invokeNative('notifyDownloadCompleted', {
+              'taskId': taskId,
+              'fileName': completedTask.fileName,
+              'savePath': completedTask.savePath,
+            }),
+          );
+        }
         _activeContexts.remove(taskId);
         client.close(force: true);
+        _processQueue();
         return;
-      }
+      } catch (e) {
+        _activeContexts.remove(taskId);
+        client?.close(force: true);
 
-      final currentDownloading = _store.getById(taskId);
-      if (currentDownloading != null &&
-          currentDownloading.status == DownloadStatus.downloading) {
-        String finalSavePath = currentDownloading.savePath;
+        if (ctx.isPaused || ctx.isCancelled) {
+          return;
+        }
 
-        // If the download was saved to a .part file, finalize it to public location
-        if (finalSavePath.endsWith('.part')) {
-          try {
-            final targetDir = await _storageService.getPublicDownloadDirectory(
-              category: currentDownloading.category,
-            );
-            final targetPath = await _storageService.resolveTargetFilePath(
-              fileName:
-                  multiDownloader.suggestedFileName ??
-                  currentDownloading.fileName,
-              category: currentDownloading.category,
-              customFolderPath: targetDir.path,
-            );
-            finalSavePath = await _storageService.finalizeDownload(
-              partFilePath: currentDownloading.savePath,
-              targetFilePath: targetPath,
-              expectedBytes: multiDownloader.totalBytes > 0
-                  ? multiDownloader.totalBytes
-                  : currentDownloading.downloadedBytes,
-            );
-          } catch (e) {
-            logEvent(
-              taskId,
-              'WARN',
-              'Finalization to public directory fallback: $e',
-            );
+        if (e is DiskSpaceException ||
+            (e is FileSystemException &&
+                (e.message.contains('Insufficient disk space') ||
+                    e.message.contains('No space left on device') ||
+                    e.osError?.errorCode == 28 ||
+                    e.message.toLowerCase().contains('no space')))) {
+          _store.update(
+            taskId,
+            (t) => t.copyWith(
+              status: DownloadStatus.paused,
+              pauseReason: 'storage',
+              errorMessage:
+                  'Disk is full. Please free up storage space to resume download.',
+              speedBytesPerSec: 0.0,
+            ),
+            notifyAggregate: true,
+          );
+          logEvent(taskId, 'ERROR', 'Disk full: $e');
+          AnalyticsService.trackDownloadFailed(errorType: 'storage_full');
+          await saveImmediate();
+          _processQueue();
+          return;
+        }
+
+        if (e is HttpException &&
+            (e.message.contains('401') ||
+                e.message.contains('403') ||
+                e.message.contains('410'))) {
+          _store.update(
+            taskId,
+            (t) => t.copyWith(
+              status: DownloadStatus.paused,
+              pauseReason: 'urlExpired',
+              errorMessage: 'Link expired. Please refresh the download link.',
+              speedBytesPerSec: 0.0,
+            ),
+            notifyAggregate: true,
+          );
+          logEvent(taskId, 'WARN', 'Download URL expired: $e');
+          AnalyticsService.trackDownloadFailed(
+            errorType: 'url_expired',
+            httpStatus: e.message.contains('401')
+                ? 401
+                : (e.message.contains('403') ? 403 : 410),
+          );
+          await saveImmediate();
+          _processQueue();
+          return;
+        }
+
+        final currentT = _store.getById(taskId);
+        if (currentT != null &&
+            !currentT.status.isPaused &&
+            !currentT.status.isCancelled) {
+          final failureCode = DownloadFailureMapper.mapException(e);
+          final cleanMsg = failureCode.localizedMessage();
+          final failedTask = _store.update(
+            taskId,
+            (t) => t.copyWith(
+              status: DownloadStatus.failed,
+              errorMessage: cleanMsg,
+              speedBytesPerSec: 0.0,
+            ),
+            notifyAggregate: true,
+          )!;
+          logEvent(taskId, 'ERROR', 'Failure ($failureCode): $e');
+          AnalyticsService.trackDownloadFailed(
+            errorType: failureCode.name,
+            httpStatus: failureCode == DownloadFailureCode.http403
+                ? 403
+                : (failureCode == DownloadFailureCode.http404 ? 404 : null),
+          );
+          await saveImmediate();
+          unawaited(
+            _invokeNative('notifyDownloadFailed', {
+              'taskId': taskId,
+              'fileName': failedTask.fileName,
+              'errorMessage': cleanMsg,
+            }),
+          );
+          if (failureCode == DownloadFailureCode.noConnection) {
+            _scheduleNetworkRetry(taskId);
           }
         }
-
-        final updatedFileName =
-            multiDownloader.suggestedFileName ?? currentDownloading.fileName;
-
-        final completedTask = _store.update(
-          taskId,
-          (t) => t.copyWith(
-            status: DownloadStatus.completed,
-            fileName: updatedFileName,
-            savePath: finalSavePath,
-            downloadedBytes: multiDownloader.totalBytes > 0
-                ? multiDownloader.totalBytes
-                : t.downloadedBytes,
-            totalBytes: multiDownloader.totalBytes > 0
-                ? multiDownloader.totalBytes
-                : t.totalBytes,
-            etag: multiDownloader.etag ?? t.etag,
-            lastModified: multiDownloader.lastModified ?? t.lastModified,
-            resumable: multiDownloader.isRangeSupported,
-            speedBytesPerSec: 0.0,
-            completedAt: DateTime.now(),
-            segments: multiDownloader.segments,
-          ),
-          notifyAggregate: true,
-        )!;
-        logEvent(taskId, 'INFO', 'Download completed successfully!');
-        final durationSec = completedTask.completedAt != null
-            ? completedTask.completedAt!
-                  .difference(completedTask.createdAt)
-                  .inSeconds
-            : 0;
-        final avgSpeed = durationSec > 0
-            ? (completedTask.downloadedBytes / durationSec).round()
-            : 0;
-        AnalyticsService.trackDownloadCompleted(
-          totalBytes: completedTask.downloadedBytes,
-          durationSeconds: durationSec,
-          avgSpeedBytesPerSec: avgSpeed,
-          category: completedTask.category.name,
-        );
-        await saveImmediate();
-        unawaited(
-          _invokeNative('notifyDownloadCompleted', {
-            'taskId': taskId,
-            'fileName': completedTask.fileName,
-            'savePath': completedTask.savePath,
-          }),
-        );
-      }
-      _activeContexts.remove(taskId);
-      client.close(force: true);
-      _processQueue();
-      return;
-    } catch (e) {
-      _activeContexts.remove(taskId);
-      client?.close(force: true);
-
-      if (ctx.isPaused || ctx.isCancelled) {
-        return;
-      }
-
-      if (e is DiskSpaceException ||
-          (e is FileSystemException &&
-              (e.message.contains('Insufficient disk space') ||
-                  e.message.contains('No space left on device') ||
-                  e.osError?.errorCode == 28 ||
-                  e.message.toLowerCase().contains('no space')))) {
-        _store.update(
-          taskId,
-          (t) => t.copyWith(
-            status: DownloadStatus.paused,
-            pauseReason: 'storage',
-            errorMessage:
-                'Disk is full. Please free up storage space to resume download.',
-            speedBytesPerSec: 0.0,
-          ),
-          notifyAggregate: true,
-        );
-        logEvent(taskId, 'ERROR', 'Disk full: $e');
-        AnalyticsService.trackDownloadFailed(errorType: 'storage_full');
-        await saveImmediate();
         _processQueue();
-        return;
       }
-
-      if (e is HttpException &&
-          (e.message.contains('401') ||
-              e.message.contains('403') ||
-              e.message.contains('410'))) {
-        _store.update(
-          taskId,
-          (t) => t.copyWith(
-            status: DownloadStatus.paused,
-            pauseReason: 'urlExpired',
-            errorMessage: 'Link expired. Please refresh the download link.',
-            speedBytesPerSec: 0.0,
-          ),
-          notifyAggregate: true,
-        );
-        logEvent(taskId, 'WARN', 'Download URL expired: $e');
-        AnalyticsService.trackDownloadFailed(
-          errorType: 'url_expired',
-          httpStatus: e.message.contains('401')
-              ? 401
-              : (e.message.contains('403') ? 403 : 410),
-        );
-        await saveImmediate();
-        _processQueue();
-        return;
-      }
-
-      final currentT = _store.getById(taskId);
-      if (currentT != null &&
-          !currentT.status.isPaused &&
-          !currentT.status.isCancelled) {
-        final failureCode = DownloadFailureMapper.mapException(e);
-        final cleanMsg = failureCode.localizedMessage();
-        final failedTask = _store.update(
-          taskId,
-          (t) => t.copyWith(
-            status: DownloadStatus.failed,
-            errorMessage: cleanMsg,
-            speedBytesPerSec: 0.0,
-          ),
-          notifyAggregate: true,
-        )!;
-        logEvent(taskId, 'ERROR', 'Failure ($failureCode): $e');
-        AnalyticsService.trackDownloadFailed(
-          errorType: failureCode.name,
-          httpStatus: failureCode == DownloadFailureCode.http403
-              ? 403
-              : (failureCode == DownloadFailureCode.http404 ? 404 : null),
-        );
-        await saveImmediate();
-        unawaited(
-          _invokeNative('notifyDownloadFailed', {
-            'taskId': taskId,
-            'fileName': failedTask.fileName,
-            'errorMessage': cleanMsg,
-          }),
-        );
-        if (failureCode == DownloadFailureCode.noConnection) {
-          _scheduleNetworkRetry(taskId);
-        }
-      }
-      _processQueue();
+    } finally {
+      _startingTasks.remove(taskId);
     }
   }
 

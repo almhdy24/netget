@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 import '../core/constants.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
+import '../models/data_budget.dart';
 import '../models/download_status.dart';
 import '../models/download_task.dart';
 import 'download_repository.dart';
@@ -54,7 +55,25 @@ class SqliteDownloadRepository implements DownloadRepository {
         await _migrateFromJsonIfExists(db);
       },
       onOpen: (db) async {
-        // Run migration if tables exist but json migration has not yet run
+        // Upgrade existing tables safely
+        try {
+          await db.execute(
+            "ALTER TABLE tasks ADD COLUMN network_policy TEXT NOT NULL DEFAULT 'anyNetwork'",
+          );
+        } catch (_) {}
+        try {
+          await db.execute('ALTER TABLE tasks ADD COLUMN mirrors TEXT');
+        } catch (_) {}
+        try {
+          await db.execute(
+            'ALTER TABLE tasks ADD COLUMN interruptions_recovered INTEGER NOT NULL DEFAULT 0',
+          );
+        } catch (_) {}
+        try {
+          await db.execute(
+            'ALTER TABLE tasks ADD COLUMN bytes_preserved_by_resume INTEGER NOT NULL DEFAULT 0',
+          );
+        } catch (_) {}
         await _migrateFromJsonIfExists(db);
       },
     );
@@ -86,7 +105,11 @@ class SqliteDownloadRepository implements DownloadRepository {
         checksum_expected TEXT,
         checksum_actual TEXT,
         checksum_algorithm TEXT,
-        pause_reason TEXT
+        pause_reason TEXT,
+        network_policy TEXT NOT NULL DEFAULT 'anyNetwork',
+        mirrors TEXT,
+        interruptions_recovered INTEGER NOT NULL DEFAULT 0,
+        bytes_preserved_by_resume INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -213,6 +236,10 @@ class SqliteDownloadRepository implements DownloadRepository {
       'checksum_actual': task.checksumActual,
       'checksum_algorithm': task.checksumAlgorithm,
       'pause_reason': task.pauseReason,
+      'network_policy': task.networkPolicy.name,
+      'mirrors': jsonEncode(task.mirrors),
+      'interruptions_recovered': task.interruptionsRecovered,
+      'bytes_preserved_by_resume': task.bytesPreservedByResume,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
 
     if (task.segments.isNotEmpty) {
@@ -298,6 +325,16 @@ class SqliteDownloadRepository implements DownloadRepository {
         checksumActual: row['checksum_actual'] as String?,
         checksumAlgorithm: row['checksum_algorithm'] as String?,
         pauseReason: row['pause_reason'] as String?,
+        networkPolicy: NetworkPolicy.fromString(
+          row['network_policy'] as String?,
+        ),
+        mirrors: row['mirrors'] != null
+            ? (jsonDecode(row['mirrors'] as String) as List<dynamic>)
+                  .map((e) => e.toString())
+                  .toList()
+            : const [],
+        interruptionsRecovered: row['interruptions_recovered'] as int? ?? 0,
+        bytesPreservedByResume: row['bytes_preserved_by_resume'] as int? ?? 0,
         segments: segmentsByTaskId[id] ?? const [],
       );
       tasks.add(task);
@@ -309,28 +346,46 @@ class SqliteDownloadRepository implements DownloadRepository {
   @override
   Future<void> saveTask(DownloadTask task) async {
     final db = await database;
-    await db.transaction((txn) async {
-      await _insertTask(txn, task);
-    });
+    if (!db.isOpen) return;
+    try {
+      await db.transaction((txn) async {
+        await _insertTask(txn, task);
+      });
+    } on DatabaseException catch (e) {
+      if (!db.isOpen || e.toString().contains('database_closed')) return;
+      rethrow;
+    }
   }
 
   @override
   Future<void> saveTasks(List<DownloadTask> tasks) async {
     final db = await database;
-    await db.transaction((txn) async {
-      for (final task in tasks) {
-        await _insertTask(txn, task);
-      }
-    });
+    if (!db.isOpen) return;
+    try {
+      await db.transaction((txn) async {
+        for (final task in tasks) {
+          await _insertTask(txn, task);
+        }
+      });
+    } on DatabaseException catch (e) {
+      if (!db.isOpen || e.toString().contains('database_closed')) return;
+      rethrow;
+    }
   }
 
   @override
   Future<void> deleteTask(String id) async {
     final db = await database;
-    await db.transaction((txn) async {
-      await txn.delete('segments', where: 'task_id = ?', whereArgs: [id]);
-      await txn.delete('tasks', where: 'id = ?', whereArgs: [id]);
-    });
+    if (!db.isOpen) return;
+    try {
+      await db.transaction((txn) async {
+        await txn.delete('segments', where: 'task_id = ?', whereArgs: [id]);
+        await txn.delete('tasks', where: 'id = ?', whereArgs: [id]);
+      });
+    } on DatabaseException catch (e) {
+      if (!db.isOpen || e.toString().contains('database_closed')) return;
+      rethrow;
+    }
   }
 
   Future<void> close() async {
