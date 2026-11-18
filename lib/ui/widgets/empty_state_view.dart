@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class EmptyStateView extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+  final Widget? illustration;
   final String title;
   final String message;
   final String? buttonText;
@@ -11,7 +12,8 @@ class EmptyStateView extends StatelessWidget {
 
   const EmptyStateView({
     super.key,
-    required this.icon,
+    this.icon,
+    this.illustration,
     required this.title,
     required this.message,
     this.buttonText,
@@ -30,16 +32,23 @@ class EmptyStateView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: colorScheme.outlineVariant),
+            if (illustration != null)
+              illustration!
+            else if (icon != null)
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: colorScheme.outlineVariant),
+                ),
+                child: Icon(
+                  icon,
+                  size: 24,
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
-              child: Icon(icon, size: 24, color: colorScheme.onSurfaceVariant),
-            ),
             const SizedBox(height: 12),
             Text(
               title,

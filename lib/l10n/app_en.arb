@@ -55,5 +55,17 @@
   "categoryDocuments": "Documents",
   "categoryArchives": "Archives",
   "categoryApps": "Apps",
-  "categoryOther": "Other"
+  "categoryOther": "Other",
+  "sloganNeverStartFromZero": "We never start from zero",
+  "dataBudget": "Data Budget",
+  "freeWindows": "Free Windows",
+  "nearbyShare": "Nearby Share",
+  "batchAdd": "Batch Add",
+  "integrityVerification": "Integrity Verification",
+  "resilienceInsights": "Resilience Insights",
+  "preservedData": "Preserved Data",
+  "recoveredDrops": "Recovered Drops",
+  "mirrors": "Mirrors",
+  "threads": "Download Threads",
+  "easternDigits": "Eastern Arabic Digits (١، ٢، ٣)"
 }

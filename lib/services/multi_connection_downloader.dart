@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/services.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
+import 'token_bucket.dart';
 
 const String _defaultUserAgent = 'NetGet/1.0 (Android; en-US)';
 
@@ -89,6 +91,7 @@ class ConcurrentFileWriter {
   bool _isClosed = false;
   int flushCount = 0;
   int writeCount = 0;
+  int _bytesSinceFlush = 0;
 
   ConcurrentFileWriter(this._raf);
 
@@ -110,6 +113,7 @@ class ConcurrentFileWriter {
   }
 
   /// Atomically seeks to [offset] and writes [bytes] without concurrency races.
+  /// Flushes to disk automatically every 256 KB to reduce flash wear on eMMC storage.
   Future<void> writeAt(int offset, List<int> bytes) {
     if (_isClosed) return Future.value();
     final completer = Completer<void>();
@@ -122,6 +126,12 @@ class ConcurrentFileWriter {
         await _raf.setPosition(offset);
         await _raf.writeFrom(bytes);
         writeCount++;
+        _bytesSinceFlush += bytes.length;
+        if (_bytesSinceFlush >= 256 * 1024) {
+          await _raf.flush();
+          flushCount++;
+          _bytesSinceFlush = 0;
+        }
         completer.complete();
       } catch (e, st) {
         if (_isEnospc(e)) {
@@ -151,6 +161,7 @@ class ConcurrentFileWriter {
       try {
         await _raf.flush();
         flushCount++;
+        _bytesSinceFlush = 0;
         completer.complete();
       } catch (e, st) {
         if (_isEnospc(e)) {
@@ -183,6 +194,15 @@ class ConcurrentFileWriter {
   }
 }
 
+class HtmlServedInsteadOfFileException implements Exception {
+  final String message;
+  final String? contentType;
+  HtmlServedInsteadOfFileException(this.message, {this.contentType});
+
+  @override
+  String toString() => message;
+}
+
 /// Result metadata returned after link probe.
 class LinkProbeResult {
   final bool isRangeSupported;
@@ -190,6 +210,7 @@ class LinkProbeResult {
   final String? etag;
   final String? lastModified;
   final String? suggestedFileName;
+  final String? contentType;
 
   LinkProbeResult({
     required this.isRangeSupported,
@@ -197,32 +218,42 @@ class LinkProbeResult {
     this.etag,
     this.lastModified,
     this.suggestedFileName,
+    this.contentType,
   });
 }
 
 typedef DiskSpaceChecker = Future<int?> Function(String directoryPath);
 
 Future<int?> defaultDiskSpaceChecker(String directoryPath) async {
-  // On Windows, the Unix `df` binary does not exist. Return null (unknown) to proceed safely.
-  if (Platform.isWindows) {
-    return null;
+  if (Platform.isAndroid) {
+    try {
+      const platform = MethodChannel('com.elmahdi.netget/engine');
+      final availableBytes = await platform.invokeMethod<int>(
+        'getFreeDiskSpace',
+        {'path': directoryPath},
+      );
+      if (availableBytes != null && availableBytes > 0) {
+        return availableBytes;
+      }
+    } catch (_) {}
   }
-  try {
-    final result = await Process.run('df', ['-Pk', directoryPath]);
-    if (result.exitCode == 0) {
-      final lines = (result.stdout as String).trim().split('\n');
-      if (lines.length >= 2) {
-        final parts = lines[1].split(RegExp(r'\s+'));
-        if (parts.length >= 4) {
-          final availKb = int.tryParse(parts[3]);
-          if (availKb != null) {
-            return availKb * 1024;
+  if (!Platform.isWindows && !Platform.isAndroid) {
+    try {
+      final result = await Process.run('df', ['-Pk', directoryPath]);
+      if (result.exitCode == 0) {
+        final lines = (result.stdout as String).trim().split('\n');
+        if (lines.length >= 2) {
+          final parts = lines[1].split(RegExp(r'\s+'));
+          if (parts.length >= 4) {
+            final availKb = int.tryParse(parts[3]);
+            if (availKb != null) {
+              return availKb * 1024;
+            }
           }
         }
       }
-    }
-  } catch (_) {}
-  // df is unreliable on Android (different toolbox/toybox versions, SELinux): treat as unknown
+    } catch (_) {}
+  }
   return null;
 }
 
@@ -246,6 +277,9 @@ class MultiConnectionDownloader {
   final void Function(String level, String message)? onLog;
   final DiskSpaceChecker? diskSpaceChecker;
   final Future<ConcurrentFileWriter> Function(File file)? writerFactory;
+  final int speedLimitBytesPerSec;
+  final TokenBucket? tokenBucket;
+  final String? expectedFileName;
 
   bool _isPaused = false;
   bool _isCancelled = false;
@@ -257,6 +291,7 @@ class MultiConnectionDownloader {
   int totalBytes = -1;
   String? etag;
   String? lastModified;
+  String? suggestedFileName;
   bool isRangeSupported = false;
 
   MultiConnectionDownloader({
@@ -274,8 +309,16 @@ class MultiConnectionDownloader {
     this.lastModified,
     this.diskSpaceChecker,
     this.writerFactory,
+    this.speedLimitBytesPerSec = 0,
+    TokenBucket? tokenBucket,
+    this.expectedFileName,
     List<DownloadSegment>? initialSegments,
-  }) : hostPool = hostPool ?? HostConnectionPool.defaultPool {
+  }) : hostPool = hostPool ?? HostConnectionPool.defaultPool,
+       tokenBucket =
+           tokenBucket ??
+           (speedLimitBytesPerSec > 0
+               ? TokenBucket(targetBytesPerSec: speedLimitBytesPerSec)
+               : null) {
     if (initialSegments != null && initialSegments.isNotEmpty) {
       segments = List.from(initialSegments);
     }
@@ -404,6 +447,31 @@ class MultiConnectionDownloader {
         final serverLastModified = response.headers.value(
           HttpHeaders.lastModifiedHeader,
         );
+        final contentDisp = response.headers.value('content-disposition');
+        String? parsedFileName;
+        if (contentDisp != null) {
+          final parsed = NetGetUtils.parseContentDisposition(contentDisp);
+          if (parsed != null && parsed.isNotEmpty) {
+            parsedFileName = NetGetUtils.sanitizeFileName(parsed);
+          }
+        }
+
+        final contentType = response.headers.contentType?.value.toLowerCase();
+        final effectiveName =
+            parsedFileName ??
+            expectedFileName ??
+            (uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '');
+        final isHtml =
+            contentType != null &&
+            (contentType.contains('text/html') ||
+                contentType.contains('application/xhtml+xml'));
+        if (isHtml && NetGetUtils.isBinaryFileName(effectiveName)) {
+          await response.drain<void>();
+          throw HtmlServedInsteadOfFileException(
+            'Server returned HTML page ($contentType) instead of expected binary file ($effectiveName)',
+            contentType: contentType,
+          );
+        }
 
         // Drain probe response body
         await response.drain<void>();
@@ -413,9 +481,19 @@ class MultiConnectionDownloader {
           totalBytes: length,
           etag: serverEtag,
           lastModified: serverLastModified,
+          suggestedFileName: parsedFileName,
+          contentType: contentType,
         );
       } catch (e) {
         if (_isPaused || _isCancelled) {
+          return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
+        }
+        if (e is HttpException &&
+            (e.message.contains('405') || e.message.contains('501'))) {
+          _log(
+            'WARN',
+            'Probe returned HTTP 405/501, falling back to standard stream',
+          );
           return LinkProbeResult(isRangeSupported: false, totalBytes: -1);
         }
         rethrow;
@@ -457,6 +535,9 @@ class MultiConnectionDownloader {
         totalBytes = probe.totalBytes;
         etag = probe.etag ?? etag;
         lastModified = probe.lastModified ?? lastModified;
+        if (probe.suggestedFileName != null) {
+          suggestedFileName = probe.suggestedFileName;
+        }
         _log(
           'INFO',
           'Server Range: ${isRangeSupported ? "Supported" : "Unsupported"}, Size: $totalBytes',
@@ -467,18 +548,25 @@ class MultiConnectionDownloader {
 
       // Verify sufficient free disk space before allocating
       if (totalBytes > 0) {
-        final checker = diskSpaceChecker ?? defaultDiskSpaceChecker;
-        final freeBytes = await checker(file.parent.path);
-        if (freeBytes == null) {
-          _log(
-            'WARN',
-            'Free disk space check returned unknown/null on Android; proceeding with download',
-          );
-        } else if (freeBytes < totalBytes) {
-          throw FileSystemException(
-            'Insufficient disk space: need $totalBytes bytes, but only $freeBytes bytes available',
-            savePath,
-          );
+        final alreadyDownloaded = segments.fold<int>(
+          0,
+          (sum, s) => sum + s.downloadedBytes,
+        );
+        final remainingBytes = totalBytes - alreadyDownloaded;
+        if (remainingBytes > 0) {
+          final checker = diskSpaceChecker ?? defaultDiskSpaceChecker;
+          final freeBytes = await checker(file.parent.path);
+          if (freeBytes == null) {
+            _log(
+              'WARN',
+              'Free disk space check returned unknown/null; proceeding with download',
+            );
+          } else if (freeBytes < remainingBytes) {
+            throw FileSystemException(
+              'Insufficient disk space: need $remainingBytes bytes, but only $freeBytes bytes available',
+              savePath,
+            );
+          }
         }
       }
 
@@ -493,23 +581,53 @@ class MultiConnectionDownloader {
         await _writer!.preallocate(totalBytes);
       }
 
-      // Step 3: Segment Planning with global per-host connection limiter
-      final availableSlots = hostPool.availableSlots(uri.host);
-      final hostCap = min(
-        maxConnectionsPerHost,
-        hostPool.maxConnectionsPerHost,
-      );
-      final effectiveConnections = (isRangeSupported && totalBytes > 256 * 1024)
-          ? connectionCount
-                .clamp(1, max(1, min(availableSlots, hostCap)))
-                .toInt()
-          : 1;
+      // Step 3: Segment Planning with strict validator rules
+      // 1. Strong ETag ("..."): can multi-connect, can resume mid-file with If-Range: <etag>
+      // 2. Weak ETag (W/"..."): must NEVER use Range across multiple connections. Fall back to 1 connection.
+      // 3. No ETag, only Last-Modified: 1 connection. Resume with If-Range: <last-modified>; if 200, restart from 0.
+      // 4. No ETag, no Last-Modified: 1 connection, no resume.
+      // 5. Chunked / unknown length (totalBytes <= 0): 1 stream.
+      final isStrong = NetGetUtils.isStrongEtag(etag);
+      final hasLastMod =
+          lastModified != null && lastModified!.trim().isNotEmpty;
+      final canMultiConnect =
+          isRangeSupported && isStrong && totalBytes > 256 * 1024;
+
+      final int effectiveConnections;
+      if (canMultiConnect) {
+        final availableSlots = hostPool.availableSlots(uri.host);
+        final hostCap = min(
+          maxConnectionsPerHost,
+          hostPool.maxConnectionsPerHost,
+        );
+        effectiveConnections = connectionCount
+            .clamp(1, max(1, min(availableSlots, hostCap)))
+            .toInt();
+      } else {
+        effectiveConnections = 1;
+        if (etag != null && !isStrong) {
+          _log(
+            'WARN',
+            'Weak ETag ($etag) detected. Strictly restricting to 1 connection per RFC 7232/7233.',
+          );
+        } else if (etag == null && hasLastMod) {
+          _log(
+            'INFO',
+            'Last-Modified only validator ($lastModified); using 1 connection.',
+          );
+        } else if (etag == null && !hasLastMod) {
+          _log(
+            'WARN',
+            'No ETag or Last-Modified validator; server does not support safe resumption. Using 1 connection.',
+          );
+        }
+      }
 
       if (segments.isEmpty) {
         segments = SegmentPlanner.planInitialSegments(
           totalBytes: totalBytes,
           connectionCount: effectiveConnections,
-          resumable: isRangeSupported,
+          resumable: isRangeSupported && (isStrong || hasLastMod),
         );
       }
 
@@ -543,7 +661,13 @@ class MultiConnectionDownloader {
       for (int i = 0; i < segments.length; i++) {
         final seg = segments[i];
         if (!seg.isFinished) {
-          workerFutures.add(_runSegmentWorker(seg, notifyProgressTick));
+          workerFutures.add(
+            _runSegmentWorker(
+              seg,
+              notifyProgressTick,
+              canMultiConnect: canMultiConnect,
+            ),
+          );
         }
       }
 
@@ -560,6 +684,9 @@ class MultiConnectionDownloader {
       await Future.wait(workerFutures);
       checkpointTimer.cancel();
       await checkpoint();
+      if (totalBytes <= 0) {
+        totalBytes = segments.fold<int>(0, (sum, s) => sum + s.downloadedBytes);
+      }
     } on _ServerResetToZeroException catch (resetEx) {
       checkpointTimer?.cancel();
       _log('INFO', '${resetEx.message}; restarting cleanly from byte 0');
@@ -610,8 +737,9 @@ class MultiConnectionDownloader {
   /// Worker task downloading a single byte-range segment.
   Future<void> _runSegmentWorker(
     DownloadSegment segment,
-    void Function(int chunkLength) onChunk,
-  ) async {
+    void Function(int chunkLength) onChunk, {
+    bool canMultiConnect = true,
+  }) async {
     int retryCount = 0;
     const int maxRetries = 3;
     final segIdx = segment.index;
@@ -633,7 +761,7 @@ class MultiConnectionDownloader {
         final startOffset = currentSeg.currentOffset;
         final endOffset = currentSeg.endByte;
 
-        // RFC 7232 § 2.3 & RFC 7233 § 3.2: Only strong ETag (not starting with W/) or Last-Modified
+        // RFC 7232 § 2.3 & RFC 7233 § 3.2: Only strong ETag or Last-Modified
         String? ifRangeValidator;
         if (NetGetUtils.isStrongEtag(etag)) {
           ifRangeValidator = etag!;
@@ -641,19 +769,20 @@ class MultiConnectionDownloader {
           ifRangeValidator = lastModified!;
         }
 
-        // If resuming a sub-range (startOffset > 0) without a valid strong validator, resumption is unsafe:
-        // restart cleanly from byte 0.
-        if (startOffset > 0 && ifRangeValidator == null) {
+        // Rule 4: No ETag, no Last-Modified -> cannot resume, must restart from byte 0
+        if (startOffset > 0 &&
+            etag == null &&
+            (lastModified == null || lastModified!.trim().isEmpty)) {
           throw _ServerResetToZeroException(
-            'Cannot resume from offset $startOffset without strong ETag or Last-Modified validator. Restarting from byte 0.',
+            'Cannot resume from offset $startOffset without validator. Restarting from byte 0.',
           );
         }
 
-        if (isRangeSupported && endOffset >= startOffset) {
-          request.headers.set(
-            HttpHeaders.rangeHeader,
-            'bytes=$startOffset-$endOffset',
-          );
+        if (isRangeSupported && (endOffset < 0 || endOffset >= startOffset)) {
+          final rangeHeaderValue = endOffset >= 0
+              ? 'bytes=$startOffset-$endOffset'
+              : 'bytes=$startOffset-';
+          request.headers.set(HttpHeaders.rangeHeader, rangeHeaderValue);
           if (ifRangeValidator != null) {
             request.headers.set(HttpHeaders.ifRangeHeader, ifRangeValidator);
           }
@@ -687,9 +816,6 @@ class MultiConnectionDownloader {
           await Future<void>.delayed(delay);
           continue;
         }
-
-        // Reset retry count on valid response
-        retryCount = 0;
 
         // Check for ETag validation across connections
         final respEtag = response.headers.value(HttpHeaders.etagHeader);
@@ -759,9 +885,31 @@ class MultiConnectionDownloader {
           );
         }
 
+        final contentType = response.headers.contentType?.value.toLowerCase();
+        final effectiveName =
+            expectedFileName ??
+            (uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '');
+        final isHtml =
+            contentType != null &&
+            (contentType.contains('text/html') ||
+                contentType.contains('application/xhtml+xml'));
+        if (isHtml &&
+            startOffset == 0 &&
+            NetGetUtils.isBinaryFileName(effectiveName)) {
+          await response.drain<void>();
+          throw HtmlServedInsteadOfFileException(
+            'Server returned HTML page ($contentType) instead of expected binary file ($effectiveName)',
+            contentType: contentType,
+          );
+        }
+
         await for (final chunk in response) {
           if (_isPaused || _isCancelled) {
             break;
+          }
+
+          if (tokenBucket != null && !tokenBucket!.isUnlimited) {
+            await tokenBucket!.consume(chunk.length);
           }
 
           final segNow = segments[segIdx];
@@ -779,8 +927,57 @@ class MultiConnectionDownloader {
         }
 
         final finalSeg = segments[segIdx];
-        if (finalSeg.remainingBytes <= 0 && finalSeg.endByte >= 0) {
+        if ((finalSeg.remainingBytes <= 0 && finalSeg.endByte >= 0) ||
+            finalSeg.endByte < 0) {
           segments[segIdx] = finalSeg.copyWith(isCompleted: true);
+          if (totalBytes <= 0) {
+            totalBytes = segments[segIdx].downloadedBytes;
+          }
+
+          // Dynamic work-stealing: when connection finishes while another segment has > 2 MB remaining
+          if (canMultiConnect && !_isPaused && !_isCancelled) {
+            DownloadSegment? targetSeg;
+            int targetIdx = -1;
+            int maxRemaining = 0;
+            for (int s = 0; s < segments.length; s++) {
+              final other = segments[s];
+              if (!other.isFinished &&
+                  other.remainingBytes > maxRemaining &&
+                  other.remainingBytes > 2 * 1024 * 1024) {
+                maxRemaining = other.remainingBytes;
+                targetSeg = other;
+                targetIdx = s;
+              }
+            }
+
+            if (targetSeg != null && targetIdx >= 0) {
+              final splitOffset = targetSeg.currentOffset + (maxRemaining ~/ 2);
+              final oldEnd = targetSeg.endByte;
+              if (oldEnd > splitOffset) {
+                segments[targetIdx] = targetSeg.copyWith(
+                  endByte: splitOffset - 1,
+                );
+                final stolenSeg = DownloadSegment(
+                  index: segments.length,
+                  startByte: splitOffset,
+                  endByte: oldEnd,
+                  downloadedBytes: 0,
+                  isCompleted: false,
+                );
+                segments.add(stolenSeg);
+                _log(
+                  'INFO',
+                  'Work-stealing: split segment $targetIdx at byte $splitOffset. Worker starting segment ${stolenSeg.index}',
+                );
+                await checkpoint();
+                await _runSegmentWorker(
+                  stolenSeg,
+                  onChunk,
+                  canMultiConnect: canMultiConnect,
+                );
+              }
+            }
+          }
         } else if (!_isPaused && !_isCancelled) {
           throw HttpException(
             'Incomplete segment transfer: ${finalSeg.remainingBytes} bytes remaining',
@@ -789,6 +986,29 @@ class MultiConnectionDownloader {
         }
       } catch (e) {
         if (_isPaused || _isCancelled) return;
+        if (e is _ServerResetToZeroException || e is DiskSpaceException) {
+          rethrow;
+        }
+
+        if (retryCount < maxRetries) {
+          retryCount++;
+          // Exponential backoff: 300ms, 600ms, 1200ms... with ±20% jitter
+          final baseMs = (300 * pow(2, retryCount - 1)).toInt().clamp(
+            200,
+            5000,
+          );
+          final jitter = (Random().nextDouble() * 0.4 - 0.2); // -20% to +20%
+          final delayMs = (baseMs * (1.0 + jitter)).round();
+          final delay = Duration(milliseconds: delayMs);
+
+          _log(
+            'WARN',
+            'Segment $segIdx error ($e) at offset ${segments[segIdx].currentOffset}. Retrying in ${delay.inMilliseconds}ms (attempt $retryCount/$maxRetries)...',
+          );
+          await Future<void>.delayed(delay);
+          continue;
+        }
+
         rethrow;
       } finally {
         releaseHostSlot();

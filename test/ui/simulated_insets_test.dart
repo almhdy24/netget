@@ -80,7 +80,8 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       // Verify footer is located above the bottom edge
       final footerFinder = find.byType(DownloadStatusFooter);
@@ -135,14 +136,16 @@ void main() {
 
       // Open sheet without keyboard
       unawaited(AddDownloadSheet.show(ctx, manager: manager));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       // Scroll to bottom of sheet
       await tester.drag(
         find.byType(SingleChildScrollView),
         const Offset(0, -400),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       final startBtn = find.text('Start now');
       expect(startBtn, findsOneWidget);
@@ -160,13 +163,15 @@ void main() {
       tester.view.viewInsets = const FakeViewPadding(
         bottom: 900,
       ); // 300 logical dp
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       await tester.drag(
         find.byType(SingleChildScrollView),
         const Offset(0, -400),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       final btnBottomWithKeyboard = tester.getBottomRight(startBtn).dy;
       // Available height with 300dp keyboard is 500dp.
@@ -225,7 +230,8 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       // Verify details scrollable view renders
       final scrollFinder = find.byType(ListView);

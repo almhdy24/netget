@@ -1,7 +1,7 @@
 name: netget
 description: "NetGet – Download Manager for Android"
 publish_to: 'none'
-version: 1.0.0-rc5+5
+version: 1.0.0+6
 
 environment:
   sdk: ^3.11.0
@@ -15,8 +15,11 @@ dependencies:
   path: ^1.9.1
   open_filex: ^4.7.0
   share_plus: ^13.3.0
+  crypto: ^3.0.6
   almhdy_analytics:
     path: packages/almhdy_analytics
+  sqflite: '>=2.4.1 <2.4.6'
+  qr_flutter: ^4.1.0
 
 dependency_overrides:
   path_provider_android: '>=2.2.0 <2.3.0'
@@ -25,6 +28,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  sqflite_common_ffi: '>=2.3.4 <2.4.6'
 
 flutter:
   uses-material-design: true

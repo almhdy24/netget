@@ -7,6 +7,7 @@ import '../../services/download_manager.dart';
 class DesktopToolbar extends StatelessWidget {
   final DownloadManager manager;
   final VoidCallback onAddLink;
+  final VoidCallback? onBatchAdd;
   final VoidCallback onOpenSettings;
   final VoidCallback? onDeleteSelected;
   final bool isSelectionMode;
@@ -17,6 +18,7 @@ class DesktopToolbar extends StatelessWidget {
     super.key,
     required this.manager,
     required this.onAddLink,
+    this.onBatchAdd,
     required this.onOpenSettings,
     this.onDeleteSelected,
     this.isSelectionMode = false,
@@ -49,6 +51,15 @@ class DesktopToolbar extends StatelessWidget {
             label: 'Add URL',
             onPressed: onAddLink,
           ),
+          if (onBatchAdd != null) ...[
+            const SizedBox(width: 4),
+            _ToolbarButton(
+              icon: Icons.playlist_add_rounded,
+              tooltip: 'Batch Add (إضافة دفعة)',
+              label: 'Batch',
+              onPressed: onBatchAdd,
+            ),
+          ],
           const SizedBox(width: 4),
           _buildDivider(colorScheme),
           const SizedBox(width: 4),

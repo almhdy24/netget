@@ -9,6 +9,8 @@ import '../../models/download_status.dart';
 import '../../models/download_task.dart';
 import '../../services/download_manager.dart';
 import '../details/download_details_screen.dart';
+import 'nearby_share_sheet.dart';
+import 'thread_bar.dart';
 
 class DownloadCard extends StatelessWidget {
   final DownloadTask task;
@@ -116,6 +118,16 @@ class DownloadCard extends StatelessWidget {
           ),
         ),
         const PopupMenuItem(
+          value: 'add_mirror',
+          child: Row(
+            children: [
+              Icon(Icons.alt_route, size: 18),
+              SizedBox(width: 10),
+              Text('Add mirror'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
           value: 'redownload',
           child: Row(
             children: [
@@ -125,7 +137,17 @@ class DownloadCard extends StatelessWidget {
             ],
           ),
         ),
-        if (task.status.isCompleted)
+        if (task.status.isCompleted) ...[
+          const PopupMenuItem(
+            value: 'nearby_share',
+            child: Row(
+              children: [
+                Icon(Icons.wifi_tethering, size: 18),
+                SizedBox(width: 10),
+                Text('شارك بالقرب (بدون نت)'),
+              ],
+            ),
+          ),
           const PopupMenuItem(
             value: 'share',
             child: Row(
@@ -136,6 +158,7 @@ class DownloadCard extends StatelessWidget {
               ],
             ),
           ),
+        ],
         const PopupMenuItem(
           value: 'properties',
           child: Row(
@@ -196,8 +219,14 @@ class DownloadCard extends StatelessWidget {
         case 'refresh_link':
           _showRefreshLinkDialog(context);
           break;
+        case 'add_mirror':
+          _showAddMirrorDialog(context);
+          break;
         case 'redownload':
           manager.reDownload(task.id);
+          break;
+        case 'nearby_share':
+          NearbyShareSheet.show(context, task);
           break;
         case 'share':
           _shareFile(context);
@@ -306,10 +335,104 @@ class DownloadCard extends StatelessWidget {
     );
   }
 
+  Future<void> _showAddMirrorDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    String? errorMsg;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.alt_route_rounded, size: 20),
+              SizedBox(width: 8),
+              Text('إضافة رابط بديل (Mirror)'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'أدخل رابطاً بديلاً لـ "${task.fileName}". سيتنقل NetGet إليه تلقائياً عند انقطاع الرابط الأساسي.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'رابط بديل',
+                  hintText: 'https://...',
+                  errorText: errorMsg,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final url = controller.text.trim();
+                if (url.isEmpty) return;
+                try {
+                  await manager.addMirror(task.id, url);
+                  if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('تمت إضافة الرابط البديل بنجاح'),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  setDialogState(() {
+                    errorMsg = e.toString().replaceFirst('Exception: ', '');
+                  });
+                }
+              },
+              child: const Text('إضافة'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final notifier = manager.getTaskNotifier(task.id);
+    if (notifier == null) {
+      final content = isDense
+          ? _buildDenseRow(context, task)
+          : _buildCard(context, task);
+      return Dismissible(
+        key: ValueKey('dismiss_${task.id}'),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (direction) => _confirmDelete(context),
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.error,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Icon(
+            Icons.delete_outline,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+        child: content,
+      );
+    }
+
     return ValueListenableBuilder<DownloadTask>(
-      valueListenable: manager.getTaskNotifier(task.id),
+      valueListenable: notifier,
       builder: (context, currentTask, _) {
         final content = isDense
             ? _buildDenseRow(context, currentTask)
@@ -616,8 +739,9 @@ class DownloadCard extends StatelessWidget {
               // Progress info & stats row
               _buildStatsRow(context, currentTask, statusColor),
 
-              // Error message if failed
-              if (currentTask.status.isFailed &&
+              // Error or special notice message if failed or paused with error
+              if ((currentTask.status.isFailed ||
+                      currentTask.status.isPaused) &&
                   currentTask.errorMessage != null &&
                   currentTask.errorMessage!.isNotEmpty) ...[
                 const SizedBox(height: 6),
@@ -627,19 +751,31 @@ class DownloadCard extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.error.withValues(alpha: 0.08),
+                    color:
+                        (currentTask.pauseReason == 'html_instead_of_file'
+                                ? Colors.orange
+                                : theme.colorScheme.error)
+                            .withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(
-                      color: theme.colorScheme.error.withValues(alpha: 0.25),
+                      color:
+                          (currentTask.pauseReason == 'html_instead_of_file'
+                                  ? Colors.orange
+                                  : theme.colorScheme.error)
+                              .withValues(alpha: 0.25),
                       width: 0.8,
                     ),
                   ),
                   child: Row(
                     children: [
                       Icon(
-                        Icons.error_outline,
+                        currentTask.pauseReason == 'html_instead_of_file'
+                            ? Icons.warning_amber_rounded
+                            : Icons.error_outline,
                         size: 13,
-                        color: theme.colorScheme.error,
+                        color: currentTask.pauseReason == 'html_instead_of_file'
+                            ? Colors.orange.shade800
+                            : theme.colorScheme.error,
                       ),
                       const SizedBox(width: 6),
                       Expanded(
@@ -647,7 +783,11 @@ class DownloadCard extends StatelessWidget {
                           currentTask.errorMessage!,
                           style: TextStyle(
                             fontSize: 10.5,
-                            color: theme.colorScheme.error,
+                            color:
+                                currentTask.pauseReason ==
+                                    'html_instead_of_file'
+                                ? Colors.orange.shade800
+                                : theme.colorScheme.error,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -656,6 +796,71 @@ class DownloadCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (currentTask.pauseReason == 'html_instead_of_file') ...[
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.open_in_browser, size: 13),
+                        label: const Text(
+                          'فتح في المتصفح',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: () => manager.openInBrowser(currentTask.url),
+                      ),
+                      FilledButton.tonalIcon(
+                        icon: const Icon(Icons.refresh, size: 13),
+                        label: const Text(
+                          'تحديث الرابط',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: () => _showRefreshLinkDialog(context),
+                      ),
+                    ],
+                  ),
+                ] else if (currentTask.pauseReason == 'urlExpired') ...[
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      FilledButton.tonalIcon(
+                        icon: const Icon(Icons.refresh, size: 13),
+                        label: const Text(
+                          'تحديث الرابط',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: () => _showRefreshLinkDialog(context),
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.alt_route, size: 13),
+                        label: const Text(
+                          'إضافة رابط بديل',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: () => _showAddMirrorDialog(context),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ],
           ),
@@ -733,6 +938,19 @@ class DownloadCard extends StatelessWidget {
     DownloadTask currentTask,
     Color statusColor,
   ) {
+    if (currentTask.segments.isNotEmpty &&
+        currentTask.totalBytes > 0 &&
+        (currentTask.status == DownloadStatus.downloading ||
+            currentTask.status == DownloadStatus.paused)) {
+      return ThreadBar(
+        segments: currentTask.segments,
+        totalBytes: currentTask.totalBytes,
+        downloadedBytes: currentTask.downloadedBytes,
+        isDownloading: currentTask.status == DownloadStatus.downloading,
+        height: 4.0,
+      );
+    }
+
     final progress = currentTask.status.isCompleted
         ? 1.0
         : (currentTask.status.isFailed || currentTask.status.isCancelled)

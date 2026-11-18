@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/constants.dart';
 import 'core/theme.dart';
-import 'data/download_repository.dart';
 import 'data/settings_repository.dart';
+import 'data/sqlite_download_repository.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/app_settings.dart';
 import 'services/analytics_service.dart';
@@ -71,9 +71,16 @@ void main() async {
   // Record initial application launch
   AnalyticsService.trackAppOpen();
 
-  final repository = JsonDownloadRepository();
-  final manager = DownloadManager(repository: repository);
+  final repository = SqliteDownloadRepository();
+  final manager = DownloadManager(
+    repository: repository,
+    settings: initialSettings,
+  );
   await manager.init();
+
+  if (initialSettings.autoResumeInterrupted) {
+    await manager.resumeInterruptedTasks();
+  }
 
   runApp(
     NetGetApp(
@@ -82,6 +89,23 @@ void main() async {
       initialSettings: initialSettings,
     ),
   );
+}
+
+/// Headless background entrypoint for Android foreground service / boot resume.
+@pragma('vm:entry-point')
+void downloadServiceMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final settingsRepository = SettingsRepository();
+  final settings = await settingsRepository.loadSettings();
+
+  if (!settings.autoResumeInterrupted) {
+    return;
+  }
+
+  final repository = SqliteDownloadRepository();
+  final manager = DownloadManager(repository: repository, settings: settings);
+  await manager.init();
+  await manager.resumeInterruptedTasks();
 }
 
 class NetGetApp extends StatefulWidget {

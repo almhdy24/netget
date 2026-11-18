@@ -26,14 +26,15 @@ class SpeedGraphPainter extends CustomPainter {
   final Path _linePath = Path();
 
   SpeedGraphPainter({
-    required this.samples,
+    required List<double> samples,
     required this.isDark,
     required this.primaryColor,
     Color? backgroundColor,
     Color? borderColor,
     Color? gridColor,
     Color? textColor,
-  }) : backgroundColor =
+  }) : samples = List<double>.unmodifiable(samples),
+       backgroundColor =
            backgroundColor ??
            (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
        borderColor =
@@ -186,8 +187,14 @@ class SpeedGraphPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant SpeedGraphPainter oldDelegate) {
-    return oldDelegate.samples != samples ||
-        oldDelegate.isDark != isDark ||
-        oldDelegate.primaryColor != primaryColor;
+    if (oldDelegate.isDark != isDark ||
+        oldDelegate.primaryColor != primaryColor) {
+      return true;
+    }
+    if (oldDelegate.samples.length != samples.length) return true;
+    for (int i = 0; i < samples.length; i++) {
+      if (oldDelegate.samples[i] != samples[i]) return true;
+    }
+    return false;
   }
 }

@@ -1,6 +1,7 @@
 import '../core/constants.dart';
 import '../core/segment_planner.dart';
 import '../core/utils.dart';
+import 'data_budget.dart';
 import 'download_status.dart';
 
 /// Represents a single logged event in the download's history ring buffer.
@@ -58,6 +59,15 @@ class DownloadTask {
   final List<double> speedSamples; // 60-sample history for sparkline
   final List<TaskLogEvent> eventLog; // up to 200 events ring buffer
   final int elapsedSeconds;
+  final int rev;
+  final String? checksumExpected;
+  final String? checksumActual;
+  final String? checksumAlgorithm;
+  final String? pauseReason;
+  final NetworkPolicy networkPolicy;
+  final List<String> mirrors;
+  final int interruptionsRecovered;
+  final int bytesPreservedByResume;
 
   const DownloadTask({
     required this.id,
@@ -82,6 +92,15 @@ class DownloadTask {
     this.speedSamples = const [],
     this.eventLog = const [],
     this.elapsedSeconds = 0,
+    this.rev = 0,
+    this.checksumExpected,
+    this.checksumActual,
+    this.checksumAlgorithm,
+    this.pauseReason,
+    this.networkPolicy = NetworkPolicy.anyNetwork,
+    this.mirrors = const [],
+    this.interruptionsRecovered = 0,
+    this.bytesPreservedByResume = 0,
   });
 
   /// Progress fraction from 0.0 to 1.0, or null if total size is unknown.
@@ -114,6 +133,24 @@ class DownloadTask {
     return downloadedBytes / elapsedSeconds;
   }
 
+  /// Whether actual and expected checksums match.
+  bool get isIntegrityVerified {
+    if (checksumExpected == null || checksumActual == null) return false;
+    final exp = checksumExpected!.trim().toLowerCase();
+    final act = checksumActual!.trim().toLowerCase();
+    return exp.isNotEmpty && exp == act;
+  }
+
+  /// Whether checksum verification failed (both exist but do not match).
+  bool get hasChecksumMismatch {
+    if (checksumExpected == null || checksumActual == null) return false;
+    final exp = checksumExpected!.trim().toLowerCase();
+    final act = checksumActual!.trim().toLowerCase();
+    return exp.isNotEmpty && act.isNotEmpty && exp != act;
+  }
+
+  static const Object _sentinel = Object();
+
   DownloadTask copyWith({
     String? id,
     String? url,
@@ -124,37 +161,124 @@ class DownloadTask {
     DownloadStatus? status,
     bool? resumable,
     double? speedBytesPerSec,
-    String? errorMessage,
+    Object? errorMessage = _sentinel,
     bool clearError = false,
     DateTime? createdAt,
-    DateTime? completedAt,
+    Object? completedAt = _sentinel,
     bool clearCompletedAt = false,
     DownloadCategory? category,
     int? connectionCount,
-    String? etag,
-    String? lastModified,
-    String? referrer,
+    Object? etag = _sentinel,
+    bool clearEtag = false,
+    Object? lastModified = _sentinel,
+    bool clearLastModified = false,
+    Object? referrer = _sentinel,
+    bool clearReferrer = false,
     String? queueName,
     List<DownloadSegment>? segments,
     List<double>? speedSamples,
     List<TaskLogEvent>? eventLog,
     int? elapsedSeconds,
+    int? rev,
+    Object? checksumExpected = _sentinel,
+    bool clearChecksumExpected = false,
+    Object? checksumActual = _sentinel,
+    bool clearChecksumActual = false,
+    Object? checksumAlgorithm = _sentinel,
+    bool clearChecksumAlgorithm = false,
+    Object? pauseReason = _sentinel,
+    bool clearPauseReason = false,
+    NetworkPolicy? networkPolicy,
+    List<String>? mirrors,
+    int? interruptionsRecovered,
+    int? bytesPreservedByResume,
   }) {
-    final bool shouldClearError =
-        clearError ||
-        ((status == DownloadStatus.queued ||
-                status == DownloadStatus.downloading ||
-                status == DownloadStatus.completed) &&
-            errorMessage == null);
+    final String? resolvedErrorMessage;
+    if (clearError) {
+      resolvedErrorMessage = null;
+    } else if (!identical(errorMessage, _sentinel)) {
+      resolvedErrorMessage = errorMessage as String?;
+    } else if ((status == DownloadStatus.queued ||
+            status == DownloadStatus.downloading ||
+            status == DownloadStatus.completed) &&
+        this.errorMessage != null &&
+        identical(errorMessage, _sentinel)) {
+      resolvedErrorMessage = null;
+    } else {
+      resolvedErrorMessage = this.errorMessage;
+    }
 
-    final bool shouldClearCompletedAt =
-        clearCompletedAt ||
-        ((status == DownloadStatus.queued ||
-                status == DownloadStatus.downloading ||
-                status == DownloadStatus.paused ||
-                status == DownloadStatus.failed) &&
-            completedAt == null &&
-            clearCompletedAt);
+    final DateTime? resolvedCompletedAt;
+    if (clearCompletedAt) {
+      resolvedCompletedAt = null;
+    } else if (!identical(completedAt, _sentinel)) {
+      resolvedCompletedAt = completedAt as DateTime?;
+    } else {
+      resolvedCompletedAt = this.completedAt;
+    }
+
+    final String? resolvedEtag;
+    if (clearEtag) {
+      resolvedEtag = null;
+    } else if (!identical(etag, _sentinel)) {
+      resolvedEtag = etag as String?;
+    } else {
+      resolvedEtag = this.etag;
+    }
+
+    final String? resolvedLastModified;
+    if (clearLastModified) {
+      resolvedLastModified = null;
+    } else if (!identical(lastModified, _sentinel)) {
+      resolvedLastModified = lastModified as String?;
+    } else {
+      resolvedLastModified = this.lastModified;
+    }
+
+    final String? resolvedReferrer;
+    if (clearReferrer) {
+      resolvedReferrer = null;
+    } else if (!identical(referrer, _sentinel)) {
+      resolvedReferrer = referrer as String?;
+    } else {
+      resolvedReferrer = this.referrer;
+    }
+
+    final String? resolvedChecksumExpected;
+    if (clearChecksumExpected) {
+      resolvedChecksumExpected = null;
+    } else if (!identical(checksumExpected, _sentinel)) {
+      resolvedChecksumExpected = checksumExpected as String?;
+    } else {
+      resolvedChecksumExpected = this.checksumExpected;
+    }
+
+    final String? resolvedChecksumActual;
+    if (clearChecksumActual) {
+      resolvedChecksumActual = null;
+    } else if (!identical(checksumActual, _sentinel)) {
+      resolvedChecksumActual = checksumActual as String?;
+    } else {
+      resolvedChecksumActual = this.checksumActual;
+    }
+
+    final String? resolvedChecksumAlgorithm;
+    if (clearChecksumAlgorithm) {
+      resolvedChecksumAlgorithm = null;
+    } else if (!identical(checksumAlgorithm, _sentinel)) {
+      resolvedChecksumAlgorithm = checksumAlgorithm as String?;
+    } else {
+      resolvedChecksumAlgorithm = this.checksumAlgorithm;
+    }
+
+    final String? resolvedPauseReason;
+    if (clearPauseReason) {
+      resolvedPauseReason = null;
+    } else if (!identical(pauseReason, _sentinel)) {
+      resolvedPauseReason = pauseReason as String?;
+    } else {
+      resolvedPauseReason = this.pauseReason;
+    }
 
     return DownloadTask(
       id: id ?? this.id,
@@ -166,23 +290,30 @@ class DownloadTask {
       status: status ?? this.status,
       resumable: resumable ?? this.resumable,
       speedBytesPerSec: speedBytesPerSec ?? this.speedBytesPerSec,
-      errorMessage: shouldClearError
-          ? null
-          : (errorMessage ?? this.errorMessage),
+      errorMessage: resolvedErrorMessage,
       createdAt: createdAt ?? this.createdAt,
-      completedAt: shouldClearCompletedAt
-          ? null
-          : (completedAt ?? this.completedAt),
+      completedAt: resolvedCompletedAt,
       category: category ?? this.category,
       connectionCount: connectionCount ?? this.connectionCount,
-      etag: etag ?? this.etag,
-      lastModified: lastModified ?? this.lastModified,
-      referrer: referrer ?? this.referrer,
+      etag: resolvedEtag,
+      lastModified: resolvedLastModified,
+      referrer: resolvedReferrer,
       queueName: queueName ?? this.queueName,
       segments: segments ?? this.segments,
       speedSamples: speedSamples ?? this.speedSamples,
       eventLog: eventLog ?? this.eventLog,
       elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+      rev: rev ?? (this.rev + 1),
+      checksumExpected: resolvedChecksumExpected,
+      checksumActual: resolvedChecksumActual,
+      checksumAlgorithm: resolvedChecksumAlgorithm,
+      pauseReason: resolvedPauseReason,
+      networkPolicy: networkPolicy ?? this.networkPolicy,
+      mirrors: mirrors ?? this.mirrors,
+      interruptionsRecovered:
+          interruptionsRecovered ?? this.interruptionsRecovered,
+      bytesPreservedByResume:
+          bytesPreservedByResume ?? this.bytesPreservedByResume,
     );
   }
 
@@ -208,6 +339,15 @@ class DownloadTask {
       'queueName': queueName,
       'segments': segments.map((s) => s.toJson()).toList(),
       'elapsedSeconds': elapsedSeconds,
+      'rev': rev,
+      'checksumExpected': checksumExpected,
+      'checksumActual': checksumActual,
+      'checksumAlgorithm': checksumAlgorithm,
+      'pauseReason': pauseReason,
+      'networkPolicy': networkPolicy.name,
+      'mirrors': mirrors,
+      'interruptionsRecovered': interruptionsRecovered,
+      'bytesPreservedByResume': bytesPreservedByResume,
     };
   }
 
@@ -261,6 +401,66 @@ class DownloadTask {
           json['queueName'] as String? ?? NetGetConstants.defaultQueueName,
       segments: parsedSegments,
       elapsedSeconds: json['elapsedSeconds'] as int? ?? 0,
+      rev: json['rev'] as int? ?? 0,
+      checksumExpected: json['checksumExpected'] as String?,
+      checksumActual: json['checksumActual'] as String?,
+      checksumAlgorithm: json['checksumAlgorithm'] as String?,
+      pauseReason: json['pauseReason'] as String?,
+      networkPolicy: NetworkPolicy.fromString(json['networkPolicy'] as String?),
+      mirrors:
+          (json['mirrors'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      interruptionsRecovered: json['interruptionsRecovered'] as int? ?? 0,
+      bytesPreservedByResume: json['bytesPreservedByResume'] as int? ?? 0,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is DownloadTask &&
+        other.id == id &&
+        other.url == url &&
+        other.fileName == fileName &&
+        other.savePath == savePath &&
+        other.totalBytes == totalBytes &&
+        other.downloadedBytes == downloadedBytes &&
+        other.status == status &&
+        other.resumable == resumable &&
+        other.speedBytesPerSec == speedBytesPerSec &&
+        other.errorMessage == errorMessage &&
+        other.createdAt == createdAt &&
+        other.completedAt == completedAt &&
+        other.category == category &&
+        other.connectionCount == connectionCount &&
+        other.etag == etag &&
+        other.lastModified == lastModified &&
+        other.referrer == referrer &&
+        other.queueName == queueName &&
+        other.elapsedSeconds == elapsedSeconds &&
+        other.rev == rev &&
+        other.checksumExpected == checksumExpected &&
+        other.checksumActual == checksumActual &&
+        other.checksumAlgorithm == checksumAlgorithm &&
+        other.pauseReason == pauseReason &&
+        other.networkPolicy == networkPolicy &&
+        other.interruptionsRecovered == interruptionsRecovered &&
+        other.bytesPreservedByResume == bytesPreservedByResume;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    status,
+    downloadedBytes,
+    totalBytes,
+    speedBytesPerSec,
+    etag,
+    lastModified,
+    rev,
+    checksumExpected,
+    pauseReason,
+  );
 }

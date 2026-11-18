@@ -168,6 +168,7 @@ void main() {
       // Retry download
       await manager.retryDownload('failed_1');
       await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
 
       // Verify error is now completely gone from UI
       expect(find.text('Connection timed out'), findsNothing);
@@ -193,71 +194,70 @@ void main() {
     expect(find.text('Add URL'), findsWidgets);
   });
 
-  testWidgets(
-    'Home screen renders tasks cleanly in list',
-    (WidgetTester tester) async {
-      tester.view.physicalSize = const Size(800, 2400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
+  testWidgets('Home screen renders tasks cleanly in list', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
 
-      final repository = TestDownloadRepository();
-      final now = DateTime.now();
-      repository.tasks = [
-        DownloadTask(
-          id: 'done_1',
-          url: 'https://example.com/done.mp4',
-          fileName: 'done.mp4',
-          savePath: '/tmp/done.mp4',
-          status: DownloadStatus.completed,
-          createdAt: now.subtract(const Duration(minutes: 5)),
-        ),
-        DownloadTask(
-          id: 'fail_1',
-          url: 'https://example.com/fail.zip',
-          fileName: 'fail.zip',
-          savePath: '/tmp/fail.zip',
-          status: DownloadStatus.failed,
-          errorMessage: 'Connection timed out',
-          createdAt: now.subtract(const Duration(minutes: 10)),
-        ),
-        DownloadTask(
-          id: 'active_1',
-          url: 'https://example.com/active.iso',
-          fileName: 'active.iso',
-          savePath: '/tmp/active.iso',
-          status: DownloadStatus.downloading,
-          downloadedBytes: 100,
-          totalBytes: 500,
-          createdAt: now.subtract(const Duration(minutes: 20)),
-        ),
-        DownloadTask(
-          id: 'paused_1',
-          url: 'https://example.com/paused.tar',
-          fileName: 'paused.tar',
-          savePath: '/tmp/paused.tar',
-          status: DownloadStatus.paused,
-          createdAt: now.subtract(const Duration(minutes: 15)),
-        ),
-      ];
+    final repository = TestDownloadRepository();
+    final now = DateTime.now();
+    repository.tasks = [
+      DownloadTask(
+        id: 'done_1',
+        url: 'https://example.com/done.mp4',
+        fileName: 'done.mp4',
+        savePath: '/tmp/done.mp4',
+        status: DownloadStatus.completed,
+        createdAt: now.subtract(const Duration(minutes: 5)),
+      ),
+      DownloadTask(
+        id: 'fail_1',
+        url: 'https://example.com/fail.zip',
+        fileName: 'fail.zip',
+        savePath: '/tmp/fail.zip',
+        status: DownloadStatus.failed,
+        errorMessage: 'Connection timed out',
+        createdAt: now.subtract(const Duration(minutes: 10)),
+      ),
+      DownloadTask(
+        id: 'active_1',
+        url: 'https://example.com/active.iso',
+        fileName: 'active.iso',
+        savePath: '/tmp/active.iso',
+        status: DownloadStatus.downloading,
+        downloadedBytes: 100,
+        totalBytes: 500,
+        createdAt: now.subtract(const Duration(minutes: 20)),
+      ),
+      DownloadTask(
+        id: 'paused_1',
+        url: 'https://example.com/paused.tar',
+        fileName: 'paused.tar',
+        savePath: '/tmp/paused.tar',
+        status: DownloadStatus.paused,
+        createdAt: now.subtract(const Duration(minutes: 15)),
+      ),
+    ];
 
-      final manager = DownloadManager(
-        repository: repository,
-        clientFactory: () => DummyHttpClient(),
-      );
-      addTearDown(manager.dispose);
-      await manager.init();
+    final manager = DownloadManager(
+      repository: repository,
+      clientFactory: () => DummyHttpClient(),
+    );
+    addTearDown(manager.dispose);
+    await manager.init();
 
-      await tester.pumpWidget(NetGetApp(manager: manager));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpWidget(NetGetApp(manager: manager));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
 
-      // Verify cards are all displayed
-      expect(find.text('active.iso'), findsOneWidget);
-      expect(find.text('paused.tar'), findsOneWidget);
-      expect(find.text('fail.zip'), findsOneWidget);
-      expect(find.text('done.mp4'), findsOneWidget);
-    },
-  );
+    // Verify cards are all displayed
+    expect(find.text('active.iso'), findsOneWidget);
+    expect(find.text('paused.tar'), findsOneWidget);
+    expect(find.text('fail.zip'), findsOneWidget);
+    expect(find.text('done.mp4'), findsOneWidget);
+  });
 
   testWidgets('About dialog does not contain Powered by Flutter', (
     WidgetTester tester,

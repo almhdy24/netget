@@ -9,6 +9,7 @@ import '../../services/analytics_service.dart';
 import '../../services/download_manager.dart';
 import 'segment_map_painter.dart';
 import 'speed_graph_painter.dart';
+import '../widgets/connection_pulse.dart';
 
 /// Classic IDM-style download properties screen with dedicated tabs:
 /// [General], [Segments], [Speed Graph], [Log].
@@ -313,21 +314,30 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
             task.errorMessage?.contains('في انتظار الشبكة') == true)) {
       label = 'Waiting for network';
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(3),
-        border: Border.all(color: color.withValues(alpha: 0.3), width: 0.8),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: color,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (task.status == DownloadStatus.downloading) ...[
+          ConnectionPulse(isActive: true, color: color, size: 8),
+          const SizedBox(width: 4),
+        ],
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: color.withValues(alpha: 0.3), width: 0.8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -406,6 +416,82 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
                 onCopy: () => _copyToClipboard(task.url, 'URL'),
               ),
               const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Flexible(
+                          child: Text(
+                            'Mirrors (روابط بديلة)',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          icon: const Icon(Icons.add, size: 14),
+                          label: const Text(
+                            'Add Mirror',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                          ),
+                          onPressed: () => _promptAddMirror(context, task),
+                        ),
+                      ],
+                    ),
+                    if (task.mirrors.isEmpty)
+                      const Text(
+                        'None configured',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      )
+                    else
+                      for (final m in task.mirrors)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.link,
+                                size: 14,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  m,
+                                  style: const TextStyle(fontSize: 11.5),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 14,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () =>
+                                    widget.manager.removeMirror(task.id, m),
+                              ),
+                            ],
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
               if (task.referrer != null && task.referrer!.isNotEmpty) ...[
                 _buildInfoRow(
                   context,
@@ -446,10 +532,201 @@ class _DownloadDetailsScreenState extends State<DownloadDetailsScreen>
                   task.lastModified ?? '--',
                 ),
               ],
+              if (task.bytesPreservedByResume > 0 ||
+                  task.interruptionsRecovered > 0) ...[
+                const Divider(height: 1),
+                _buildTwoColRow(
+                  'Saved by resume',
+                  NetGetUtils.formatBytes(task.bytesPreservedByResume),
+                  'Recovered drops',
+                  '${task.interruptionsRecovered}',
+                ),
+              ],
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      task.isIntegrityVerified
+                          ? Icons.verified_user
+                          : (task.hasChecksumMismatch
+                                ? Icons.gpp_bad
+                                : Icons.security),
+                      size: 16,
+                      color: task.isIntegrityVerified
+                          ? Colors.green
+                          : (task.hasChecksumMismatch
+                                ? Colors.red
+                                : theme.colorScheme.primary),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            task.isIntegrityVerified
+                                ? 'Integrity Verified (${task.checksumAlgorithm ?? 'sha256'})'
+                                : (task.hasChecksumMismatch
+                                      ? 'Checksum Mismatch Warning!'
+                                      : (task.checksumActual != null
+                                            ? 'Calculated ${task.checksumAlgorithm ?? 'sha256'}'
+                                            : 'Checksum & Integrity')),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: task.hasChecksumMismatch
+                                  ? Colors.red
+                                  : null,
+                            ),
+                          ),
+                          if (task.checksumActual != null)
+                            Text(
+                              task.checksumActual!,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontFamily: 'monospace',
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.check_circle_outline, size: 14),
+                      label: Text(
+                        task.checksumActual == null ? 'Verify' : 'Re-verify',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      onPressed: () => _promptVerifyChecksum(context, task),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _promptAddMirror(BuildContext context, DownloadTask task) async {
+    final controller = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Mirror URL'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Mirror URL',
+            hintText: 'https://...',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final url = controller.text.trim();
+              if (url.isNotEmpty) {
+                await widget.manager.addMirror(task.id, url);
+              }
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _promptVerifyChecksum(
+    BuildContext context,
+    DownloadTask task,
+  ) async {
+    final expectedController = TextEditingController(
+      text: task.checksumExpected ?? '',
+    );
+    String selectedAlgorithm = task.checksumAlgorithm ?? 'sha256';
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Verify Checksum'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: selectedAlgorithm,
+                decoration: const InputDecoration(
+                  labelText: 'Algorithm',
+                  isDense: true,
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'sha256', child: Text('SHA-256')),
+                  DropdownMenuItem(value: 'sha1', child: Text('SHA-1')),
+                  DropdownMenuItem(value: 'md5', child: Text('MD5')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() => selectedAlgorithm = val);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: expectedController,
+                decoration: const InputDecoration(
+                  labelText: 'Expected Checksum (optional)',
+                  hintText: 'Paste expected hash...',
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                final expected = expectedController.text.trim();
+                final isMatch = await widget.manager.verifyTaskChecksum(
+                  task.id,
+                  expectedHash: expected.isNotEmpty ? expected : null,
+                  algorithm: selectedAlgorithm,
+                );
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isMatch
+                            ? 'Checksum matched successfully!'
+                            : (expected.isNotEmpty
+                                  ? 'Checksum mismatch warning!'
+                                  : 'Checksum calculated successfully!'),
+                      ),
+                    ),
+                  );
+                }
+              },
+              child: const Text('Calculate / Verify'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

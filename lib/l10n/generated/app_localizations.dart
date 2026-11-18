@@ -433,6 +433,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Other'**
   String get categoryOther;
+
+  /// No description provided for @sloganNeverStartFromZero.
+  ///
+  /// In en, this message translates to:
+  /// **'We never start from zero'**
+  String get sloganNeverStartFromZero;
+
+  /// No description provided for @dataBudget.
+  ///
+  /// In en, this message translates to:
+  /// **'Data Budget'**
+  String get dataBudget;
+
+  /// No description provided for @freeWindows.
+  ///
+  /// In en, this message translates to:
+  /// **'Free Windows'**
+  String get freeWindows;
+
+  /// No description provided for @nearbyShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Nearby Share'**
+  String get nearbyShare;
+
+  /// No description provided for @batchAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Batch Add'**
+  String get batchAdd;
+
+  /// No description provided for @integrityVerification.
+  ///
+  /// In en, this message translates to:
+  /// **'Integrity Verification'**
+  String get integrityVerification;
+
+  /// No description provided for @resilienceInsights.
+  ///
+  /// In en, this message translates to:
+  /// **'Resilience Insights'**
+  String get resilienceInsights;
+
+  /// No description provided for @preservedData.
+  ///
+  /// In en, this message translates to:
+  /// **'Preserved Data'**
+  String get preservedData;
+
+  /// No description provided for @recoveredDrops.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovered Drops'**
+  String get recoveredDrops;
+
+  /// No description provided for @mirrors.
+  ///
+  /// In en, this message translates to:
+  /// **'Mirrors'**
+  String get mirrors;
+
+  /// No description provided for @threads.
+  ///
+  /// In en, this message translates to:
+  /// **'Download Threads'**
+  String get threads;
+
+  /// No description provided for @easternDigits.
+  ///
+  /// In en, this message translates to:
+  /// **'Eastern Arabic Digits (١، ٢، ٣)'**
+  String get easternDigits;
 }
 
 class _AppLocalizationsDelegate

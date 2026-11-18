@@ -1,0 +1,138 @@
+name: Google Play AAB Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version Name override (optional, e.g. 1.0.0)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run: build without release secrets (uses debug signing)'
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-aab:
+    name: Build & Package Google Play App Bundle (.aab)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Generate Localizations
+        run: flutter gen-l10n
+
+      - name: Run Static Analysis
+        run: flutter analyze --no-fatal-infos --fatal-warnings
+
+      - name: Run Test Suite
+        run: flutter test
+
+      - name: Prepare Signing Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          IS_DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          KS=android/app/upload-keystore.jks
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            if [ "$IS_DRY_RUN" = "true" ]; then
+              echo "::warning::KEYSTORE_BASE64 is empty on dry_run; falling back to debug signing."
+              echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+              exit 0
+            else
+              echo "::error::Release keystore secret KEYSTORE_BASE64 is missing! Please configure repository secrets."
+              exit 1
+            fi
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$KS"
+          if ! keytool -certreq -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" \
+               -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" -file /dev/null >/dev/null 2>&1; then
+            if [ "$IS_DRY_RUN" = "true" ]; then
+              echo "::warning::Keystore verification failed on dry_run; falling back to debug signing."
+              echo "IS_DEBUG_SIGNED=true" >> "$GITHUB_ENV"
+              rm -f "$KS"
+              exit 0
+            else
+              echo "::error::Keystore secrets do not unlock the keystore!"
+              exit 1
+            fi
+          fi
+
+          cat <<EOF > android/key.properties
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+          echo "Release keystore verified and key.properties created."
+
+      - name: Build Release Android App Bundle (AAB Only)
+        run: |
+          echo "Compiling Google Play Release App Bundle (.aab)..."
+          flutter build appbundle --release
+
+      - name: Stage & Verify Google Play Bundle
+        run: |
+          mkdir -p dist-aab
+          AAB_SOURCE="build/app/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$AAB_SOURCE" ]; then
+            echo "::error::App bundle not found at $AAB_SOURCE!"
+            exit 1
+          fi
+
+          VERSION=$(grep '^version:' pubspec.yaml | head -n 1 | awk '{print $2}' | tr '+' '_')
+          cp "$AAB_SOURCE" "dist-aab/NetGet-v${VERSION}.aab"
+          
+          if [ -f "build/app/outputs/mapping/release/mapping.txt" ]; then
+            cp "build/app/outputs/mapping/release/mapping.txt" "dist-aab/mapping-v${VERSION}.txt"
+          fi
+
+          cd dist-aab
+          sha256sum * > SHA256SUMS.txt
+          echo "--- Generated Release Assets ---"
+          ls -lh
+          cat SHA256SUMS.txt
+          cd ..
+
+      - name: Verify AAB Signature
+        run: |
+          AAB_FILE=$(ls dist-aab/*.aab | head -n 1)
+          echo "Verifying signature for $AAB_FILE..."
+          keytool -printcert -jarfile "$AAB_FILE"
+
+      - name: Upload Google Play Release AAB (Artifact Only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-play-bundle-aab
+          path: dist-aab/*
+          retention-days: 30

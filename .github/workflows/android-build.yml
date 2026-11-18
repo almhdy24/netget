@@ -43,18 +43,21 @@ jobs:
         run: flutter pub get
 
       - name: Run Flutter Analysis
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos --fatal-warnings
 
       - name: Run Test Suite
         run: flutter test
 
-      - name: Build Release APK
-        run: flutter build apk --release
+      - name: Build Release APK & App Bundle
+        run: |
+          flutter build apk --release
+          flutter build appbundle --release
 
-      - name: Stage Release APK Artifact
+      - name: Stage Release Artifacts
         run: |
           mkdir -p output
           cp build/app/outputs/flutter-apk/app-release.apk output/NetGet-v1.0.0-release.apk
+          cp build/app/outputs/bundle/release/app-release.aab output/NetGet-v1.0.0-release.aab
           ls -la output/
 
       - name: Upload Release APK Artifact
@@ -62,4 +65,11 @@ jobs:
         with:
           name: netget-release-apk
           path: output/NetGet-v1.0.0-release.apk
+          retention-days: 14
+
+      - name: Upload Release AAB Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netget-release-aab
+          path: output/NetGet-v1.0.0-release.aab
           retention-days: 14

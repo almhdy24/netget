@@ -6,6 +6,7 @@ import 'package:netget/main.dart';
 import 'package:netget/models/download_status.dart';
 import 'package:netget/models/download_task.dart';
 import 'package:netget/services/download_manager.dart';
+import 'package:netget/ui/widgets/thread_bar.dart';
 
 class TestDownloadRepository implements DownloadRepository {
   List<DownloadTask> tasks = [];
@@ -184,10 +185,16 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('50.0%'), findsOneWidget);
-    final indicator = tester.widget<LinearProgressIndicator>(
-      find.byType(LinearProgressIndicator),
-    );
-    expect(indicator.value, 0.50);
+    final threadBarFinder = find.byType(ThreadBar);
+    if (threadBarFinder.evaluate().isNotEmpty) {
+      final threadBar = tester.widget<ThreadBar>(threadBarFinder);
+      expect(threadBar.downloadedBytes / threadBar.totalBytes, 0.50);
+    } else {
+      final indicator = tester.widget<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      expect(indicator.value, 0.50);
+    }
   });
 
   testWidgets('(c) unknown totalBytes shows an indeterminate bar, not 0%', (
