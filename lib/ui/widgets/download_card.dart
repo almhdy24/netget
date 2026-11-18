@@ -9,6 +9,7 @@ import '../../models/download_status.dart';
 import '../../models/download_task.dart';
 import '../../services/download_manager.dart';
 import '../details/download_details_screen.dart';
+import 'nearby_share_sheet.dart';
 
 class DownloadCard extends StatelessWidget {
   final DownloadTask task;
@@ -135,7 +136,17 @@ class DownloadCard extends StatelessWidget {
             ],
           ),
         ),
-        if (task.status.isCompleted)
+        if (task.status.isCompleted) ...[
+          const PopupMenuItem(
+            value: 'nearby_share',
+            child: Row(
+              children: [
+                Icon(Icons.wifi_tethering, size: 18),
+                SizedBox(width: 10),
+                Text('شارك بالقرب (بدون نت)'),
+              ],
+            ),
+          ),
           const PopupMenuItem(
             value: 'share',
             child: Row(
@@ -146,6 +157,7 @@ class DownloadCard extends StatelessWidget {
               ],
             ),
           ),
+        ],
         const PopupMenuItem(
           value: 'properties',
           child: Row(
@@ -211,6 +223,9 @@ class DownloadCard extends StatelessWidget {
           break;
         case 'redownload':
           manager.reDownload(task.id);
+          break;
+        case 'nearby_share':
+          NearbyShareSheet.show(context, task);
           break;
         case 'share':
           _shareFile(context);

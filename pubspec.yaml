@@ -19,6 +19,7 @@ dependencies:
   almhdy_analytics:
     path: packages/almhdy_analytics
   sqflite: ^2.4.6
+  qr_flutter: ^4.1.0
 
 dependency_overrides:
   path_provider_android: '>=2.2.0 <2.3.0'
