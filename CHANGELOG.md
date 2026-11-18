@@ -2,6 +2,54 @@
 
 All notable changes to the NetGet project are documented in this file.
 
+## [1.0.0-rc5] - 2026-11-18
+
+### Added
+- **Resilient Multi-Connection Engine & Work-Stealing**:
+  - Unified isolate-hosted download engine (`downloadServiceMain` / `DownloadServiceHost`) supporting 1..N connections on a single robust pipeline.
+  - Dynamic RFC 7232 / 7233 byte-range segment planning with real-time work-stealing scheduler (`SegmentPlanner.stealWork`) to eliminate tail latency.
+  - Strict validator checks: weak ETags (`W/"..."`) rejected for range downloads; server ETag mutation handled cleanly; zero-hole file safety preventing incomplete assembly.
+  - Fine-grained `TokenBucket` bandwidth rate limiter for global and per-task speed limits.
+  - Expired signed URL refresh flow allowing resumption from existing downloaded byte offsets without restarting from byte 0.
+- **Data Budgeting & Free Off-Peak Windows**:
+  - SQLite `usage_ledger` recording byte transfers tagged by network interface (`mobile`, `wifi`, `free_mobile`).
+  - Monthly mobile budget caps with hard-stop policy enforcement.
+  - Free night windows (e.g. 02:00 – 06:00) with automatic pause and resume scheduler for tasks set to `wifiOrFreeWindow`.
+  - Dedicated `DataBudgetScreen` with reactive `BudgetRing` gauge and configuration controls.
+- **Multi-Mirror Failover & Link Recovery**:
+  - Automatic fallback to alternate mirrors upon HTTP 403, 404, 410, or transport disconnects.
+  - HTML captive portal / ISP block page detection (`HtmlServedInsteadOfFileException`).
+  - Interactive mirror management dialogs in `DownloadDetailsScreen` and `AddDownloadSheet`.
+  - Native `openBrowser` platform channel integration.
+- **Offline Nearby Share («شارك بالقرب»)**:
+  - Built-in local HTTP RFC 7233 byte-range streaming server (`NearbyShareService`).
+  - Animated QR code handoff sheet (`NearbyShareSheet`) enabling zero-internet peer-to-peer file transfer over Wi-Fi/hotspot.
+- **Smart Add & Clipboard Integration**:
+  - Non-intrusive clipboard URL suggestion chip on app resume in `HomeScreen`.
+  - Multi-line `BatchAddDialog` for batch URL entry, automatic categorization, and policy assignment.
+- **File Integrity & Two-Stage Storage**:
+  - Background isolate streaming checksum calculator for SHA-256, SHA-1, and MD5 hashes (`IntegrityService`).
+  - Automated `.sha256` / `.sha1` / `.md5` server sidecar probing.
+  - Two-stage `.staging/` working file pipeline with atomic verification and rename into public `Download/` or SAF storage (`StorageService`).
+- **Honest Insights Telemetry**:
+  - Real tracking of `bytesPreservedByResume` and `interruptionsRecovered`.
+  - «رؤى الصمود — ما بنبدأ من الصفر» statistics card in `StatisticsScreen`.
+  - Privacy-preserving analytics (`almhdy_analytics`) with URL query parameter sanitization.
+- **«خيوط» (Threads) Visual Identity**:
+  - Signature Sudanese desert & Nile color palette: Warm Sand, Desert Amber, Nile Deep Blue, Clay Terracotta, Dark Slate.
+  - `ThreadBar` custom painter visualizing concurrent worker strands with live boundary indicators.
+  - `ConnectionPulse` animated stream indicator and `ThreadEmptyState` woven loom illustration.
+- **Arabic-First RTL Localization & Eastern Numerals**:
+  - Comprehensive Arabic-first RTL audit with authentic Sudanese cultural resonance («ما بنبدأ من الصفر»).
+  - Eastern Arabic digits toggle (`١، ٢، ٣`) across all download metrics, cards, and detail views.
+- **Architectural Decision Records (ADRs)**:
+  - Formal ADRs 001 through 020 documenting all system decisions.
+
+### Changed
+- Replaced JSON file-based task persistence with SQLite WAL database (`netget.db`) with automatic `.bak` safety migration.
+- Replaced monolithic download manager loops with single-mutation `TaskStore` architecture.
+- Upgraded app version to `1.0.0-rc5+5`.
+
 ## [1.0.0-rc2] - 2026-11-07
 
 ### Added
