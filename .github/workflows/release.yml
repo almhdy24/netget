@@ -42,6 +42,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.41.9'
           channel: stable
           cache: true
 
@@ -115,11 +116,11 @@ jobs:
       - name: Build Release APKs & App Bundle
         run: |
           echo "Building split-per-abi release APKs..."
-          flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
+          flutter build apk --release --split-per-abi
           echo "Building universal release APK..."
-          flutter build apk --release --android-skip-build-dependency-validation
+          flutter build apk --release
           echo "Building release Android App Bundle (AAB)..."
-          flutter build appbundle --release --android-skip-build-dependency-validation
+          flutter build appbundle --release
 
       - name: Prepare Release Assets
         run: |
